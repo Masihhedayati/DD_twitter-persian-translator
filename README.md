@@ -1,15 +1,22 @@
-# Twitter Monitoring & Notification System
+# Twitter Persian Translator
 
-A comprehensive Python application that monitors specified Twitter accounts, downloads media content, processes tweets with AI, and sends intelligent notifications via Telegram.
+[![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](https://github.com/YOUR_USERNAME/twitter-persian-translator/releases)
+[![Python](https://img.shields.io/badge/python-3.11+-blue.svg)](https://python.org)
+[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![Docker](https://img.shields.io/badge/docker-ready-blue.svg)](Dockerfile)
+[![AI](https://img.shields.io/badge/AI-GPT--4o-orange.svg)](https://openai.com)
+
+Advanced Twitter monitoring system with AI-powered Persian translation capabilities. Features real-time tweet processing, multi-platform integration (TwitterAPI.io, OpenAI GPT-4o, Telegram), comprehensive web dashboard, and Dockerized deployment.
 
 ## 🚀 Features
 
 - **Real-time Twitter Monitoring**: Track multiple Twitter accounts automatically
+- **AI-Powered Persian Translation**: Convert English tweets to professional Persian using OpenAI GPT-4o
 - **Media Download**: Automatically download images, videos, and audio from tweets
-- **AI Processing**: Analyze tweets using OpenAI for intelligent insights
-- **Telegram Integration**: Send notifications with rich media to Telegram
-- **Web Dashboard**: User-friendly interface to view and manage collected data
-- **Robust Architecture**: Built with Flask, SQLite, and proven Python libraries
+- **Telegram Integration**: Send Persian translations with rich media to Telegram channels
+- **Web Dashboard**: User-friendly interface to view and manage collected data with Persian translations
+- **Professional News Formatting**: Includes emojis, country flags, and appropriate hashtags
+- **Robust Architecture**: Built with Flask, SQLite, Docker, and proven Python libraries
 
 ## 📋 Requirements
 
