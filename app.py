@@ -695,10 +695,10 @@ def get_detailed_system_status():
                     'last_backup': None  # Could implement backup tracking
                 },
                 'scheduler': {
-                    'status': 'running' if scheduler and hasattr(scheduler, 'running') and scheduler.running else 'stopped',
+                    'status': 'running' if scheduler and hasattr(scheduler, 'is_running') and scheduler.is_running else 'stopped',
                     'monitored_users': scheduler.monitored_users if scheduler else [],
-                    'last_poll': scheduler.last_poll_time.isoformat() if scheduler and hasattr(scheduler, 'last_poll_time') and scheduler.last_poll_time else None,
-                    'next_poll': scheduler.next_poll_time.isoformat() if scheduler and hasattr(scheduler, 'next_poll_time') and scheduler.next_poll_time else None
+                    'last_poll': scheduler.last_poll_time if scheduler and hasattr(scheduler, 'last_poll_time') and scheduler.last_poll_time else None,
+                    'next_poll': scheduler.next_poll_time if scheduler and hasattr(scheduler, 'next_poll_time') and scheduler.next_poll_time else None
                 },
                 'twitter_api': {
                     'status': 'configured' if Config.TWITTER_API_KEY else 'not_configured',
