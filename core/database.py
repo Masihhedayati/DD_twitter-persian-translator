@@ -602,16 +602,21 @@ class Database:
                 cursor.execute('SELECT value FROM settings WHERE key = ?', ('monitored_users',))
                 result = cursor.fetchone()
                 
-                if result and result[0]:
-                    # Parse comma-separated list
-                    users = [user.strip() for user in result[0].split(',') if user.strip()]
-                    return users
+                if result is not None:
+                    # If setting exists (even if empty), parse it
+                    if result[0]:
+                        users = [user.strip() for user in result[0].split(',') if user.strip()]
+                        return users
+                    else:
+                        # Empty string means no users to monitor
+                        return []
                 else:
-                    # Return default users if none stored
+                    # Return default users only if setting doesn't exist at all (first run)
                     return ['elonmusk', 'naval', 'paulg']
                     
         except Exception as e:
             logger.error(f"Error getting monitored users: {e}")
+            # Only return defaults on error, not when explicitly set to empty
             return ['elonmusk', 'naval', 'paulg']
     
     def set_monitored_users(self, users: List[str]) -> bool:
@@ -619,13 +624,17 @@ class Database:
         try:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
-                users_str = ','.join(users)
+                # Allow empty list - store as empty string
+                users_str = ','.join(users) if users else ''
                 cursor.execute('''
                     INSERT OR REPLACE INTO settings (key, value, updated_at)
                     VALUES (?, ?, ?)
                 ''', ('monitored_users', users_str, datetime.now()))
                 conn.commit()
-                logger.info(f"Updated monitored users: {users}")
+                if users:
+                    logger.info(f"Updated monitored users: {users}")
+                else:
+                    logger.info("Cleared all monitored users")
                 return True
                 
         except Exception as e:
