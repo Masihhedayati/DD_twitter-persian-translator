@@ -6,6 +6,37 @@
 // Global settings state
 let currentSettings = {};
 let systemStatus = {};
+let isAdvancedMode = false;
+
+// Loading state management
+const loadingStates = new Map();
+
+// Set button loading state
+function setButtonLoading(button, isLoading, text = null) {
+    if (!button) return;
+    
+    const buttonId = button.id || button.textContent;
+    
+    if (isLoading) {
+        // Store original state
+        loadingStates.set(buttonId, {
+            html: button.innerHTML,
+            disabled: button.disabled
+        });
+        
+        // Set loading state
+        button.disabled = true;
+        button.innerHTML = `<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>${text || 'Loading...'}`;
+    } else {
+        // Restore original state
+        const originalState = loadingStates.get(buttonId);
+        if (originalState) {
+            button.innerHTML = originalState.html;
+            button.disabled = originalState.disabled;
+            loadingStates.delete(buttonId);
+        }
+    }
+}
 
 // Initialize settings page
 document.addEventListener('DOMContentLoaded', function() {
@@ -86,6 +117,21 @@ function populateSettingsForm(settings) {
         const checkIntervalElement = document.getElementById('checkInterval');
         if (checkIntervalElement) {
             checkIntervalElement.value = settings.check_interval;
+        }
+    }
+    
+    if (settings.historical_hours) {
+        const historicalHoursElement = document.getElementById('historicalHours');
+        if (historicalHoursElement) {
+            historicalHoursElement.value = settings.historical_hours;
+        }
+    }
+    
+    // Set monitoring mode radio button
+    if (settings.monitoring_mode) {
+        const modeRadio = document.querySelector(`input[name="monitoringMode"][value="${settings.monitoring_mode}"]`);
+        if (modeRadio) {
+            modeRadio.checked = true;
         }
     }
     
@@ -241,45 +287,221 @@ function setupFormHandlers() {
         }
     });
     
-    // Validation for numeric fields
-    const numericFields = ['checkInterval', 'notificationDelay', 'aiBatchSize'];
+    // Real-time validation for numeric fields
+    const numericFields = [
+        { id: 'checkInterval', name: 'Polling Interval' },
+        { id: 'notificationDelay', name: 'Notification Delay' },
+        { id: 'aiBatchSize', name: 'Batch Size' },
+        { id: 'aiMaxTokens', name: 'Max Tokens' },
+        { id: 'historicalHours', name: 'Historical Period' }
+    ];
     
-    numericFields.forEach(fieldId => {
-        const element = document.getElementById(fieldId);
+    numericFields.forEach(field => {
+        const element = document.getElementById(field.id);
         if (element) {
+            // Add label if missing
+            if (!element.labels || element.labels.length === 0) {
+                element.setAttribute('aria-label', field.name);
+            }
+            
+            // Real-time validation on input
+            element.addEventListener('input', function() {
+                validateNumericField(this, false); // Don't show error message on input
+            });
+            
+            // Full validation on blur
             element.addEventListener('blur', function() {
-                validateNumericField(this);
+                validateNumericField(this, true);
             });
         }
     });
+    
+    // Real-time validation for URL input
+    const urlInput = document.getElementById('newUserInput');
+    if (urlInput) {
+        urlInput.addEventListener('input', function() {
+            validateUrlInput(this);
+        });
+    }
+    
+    // Real-time validation for AI prompt
+    const promptTextarea = document.getElementById('aiPrompt');
+    if (promptTextarea) {
+        promptTextarea.addEventListener('input', function() {
+            validatePrompt(this);
+        });
+        
+        // Initialize character counter
+        validatePrompt(promptTextarea);
+    }
+    
+    // Add validation state to all form controls on load
+    document.querySelectorAll('.form-control, .form-select').forEach(element => {
+        element.addEventListener('focus', function() {
+            this.classList.add('focus');
+        });
+        
+        element.addEventListener('blur', function() {
+            this.classList.remove('focus');
+        });
+    });
 }
 
-// Validate numeric field
-function validateNumericField(field) {
+// Validate numeric field with real-time feedback
+function validateNumericField(field, showError = true) {
     const value = parseInt(field.value);
     const min = parseInt(field.min);
     const max = parseInt(field.max);
+    const fieldName = field.labels?.[0]?.textContent || field.placeholder || 'Field';
+    
+    // Remove existing validation feedback
+    const existingFeedback = field.parentNode.querySelector('.invalid-feedback');
+    if (existingFeedback) {
+        existingFeedback.remove();
+    }
     
     if (isNaN(value) || value < min || value > max) {
         field.classList.add('is-invalid');
-        showStatus(`${field.labels[0].textContent} must be between ${min} and ${max}`, 'error');
+        field.classList.remove('is-valid');
+        
+        // Add validation feedback
+        if (showError) {
+            const feedback = document.createElement('div');
+            feedback.className = 'invalid-feedback';
+            feedback.textContent = isNaN(value) 
+                ? `Please enter a valid number`
+                : `Must be between ${min} and ${max}`;
+            field.parentNode.appendChild(feedback);
+        }
+        
         return false;
     } else {
         field.classList.remove('is-invalid');
+        field.classList.add('is-valid');
         return true;
     }
 }
 
+// Validate URL input
+function validateUrlInput(field) {
+    const value = field.value.trim();
+    
+    // Remove existing validation feedback
+    const existingFeedback = field.parentNode.querySelector('.invalid-feedback, .valid-feedback');
+    if (existingFeedback) {
+        existingFeedback.remove();
+    }
+    
+    if (!value) {
+        field.classList.remove('is-invalid', 'is-valid');
+        return true; // Empty is okay
+    }
+    
+    // Check if it's a valid Twitter username or URL
+    const usernameRegex = /^[A-Za-z0-9_]{1,15}$/;
+    const urlRegex = /^https?:\/\/(www\.)?(twitter\.com|x\.com)\/[A-Za-z0-9_]{1,15}\/?$/;
+    
+    if (usernameRegex.test(value) || urlRegex.test(value)) {
+        field.classList.remove('is-invalid');
+        field.classList.add('is-valid');
+        
+        const feedback = document.createElement('div');
+        feedback.className = 'valid-feedback';
+        feedback.textContent = '✓ Valid format';
+        field.parentNode.appendChild(feedback);
+        
+        return true;
+    } else {
+        field.classList.add('is-invalid');
+        field.classList.remove('is-valid');
+        
+        const feedback = document.createElement('div');
+        feedback.className = 'invalid-feedback';
+        feedback.textContent = 'Enter a username or Twitter/X.com URL';
+        field.parentNode.appendChild(feedback);
+        
+        return false;
+    }
+}
+
+// Validate prompt textarea
+function validatePrompt(field) {
+    const value = field.value.trim();
+    const minLength = 10;
+    const maxLength = 1000;
+    
+    // Remove existing validation feedback
+    const existingFeedback = field.parentNode.querySelector('.invalid-feedback, .valid-feedback');
+    if (existingFeedback) {
+        existingFeedback.remove();
+    }
+    
+    const charCount = document.getElementById('promptCharCount') || createCharCounter(field);
+    charCount.textContent = `${value.length}/${maxLength} characters`;
+    
+    if (value.length < minLength) {
+        field.classList.add('is-invalid');
+        field.classList.remove('is-valid');
+        charCount.classList.add('text-danger');
+        charCount.classList.remove('text-success', 'text-muted');
+        
+        const feedback = document.createElement('div');
+        feedback.className = 'invalid-feedback';
+        feedback.textContent = `Prompt must be at least ${minLength} characters`;
+        field.parentNode.appendChild(feedback);
+        
+        return false;
+    } else if (value.length > maxLength) {
+        field.classList.add('is-invalid');
+        field.classList.remove('is-valid');
+        charCount.classList.add('text-danger');
+        charCount.classList.remove('text-success', 'text-muted');
+        
+        const feedback = document.createElement('div');
+        feedback.className = 'invalid-feedback';
+        feedback.textContent = `Prompt must not exceed ${maxLength} characters`;
+        field.parentNode.appendChild(feedback);
+        
+        return false;
+    } else {
+        field.classList.remove('is-invalid');
+        field.classList.add('is-valid');
+        charCount.classList.add('text-success');
+        charCount.classList.remove('text-danger', 'text-muted');
+        
+        return true;
+    }
+}
+
+// Create character counter for textarea
+function createCharCounter(field) {
+    const counter = document.createElement('small');
+    counter.id = 'promptCharCount';
+    counter.className = 'form-text text-muted';
+    field.parentNode.appendChild(counter);
+    return counter;
+}
+
 // Save all settings
-async function saveAllSettings() {
-    await saveSettings();
+async function saveAllSettings(event) {
+    await saveSettings(event);
 }
 
 // Save settings to API
-async function saveSettings() {
+async function saveSettings(event) {
+    const button = event ? event.target.closest('button') : null;
+    if (button) {
+        setButtonLoading(button, true, 'Saving...');
+    }
+    
     try {
         // Collect form data
         const settings = {
+            twitter_settings: {
+                check_interval: parseInt(document.getElementById('checkInterval').value),
+                monitoring_mode: document.querySelector('input[name="monitoringMode"]:checked').value,
+                historical_hours: parseInt(document.getElementById('historicalHours').value)
+            },
             notification_settings: {
                 enabled: document.getElementById('notificationsEnabled').checked,
                 notify_all_tweets: document.getElementById('notifyAll').checked,
@@ -322,41 +544,73 @@ async function saveSettings() {
         
     } catch (error) {
         console.error('Error saving settings:', error);
-        showStatus('Failed to save settings: ' + error.message, 'error');
+        showStatus('Failed to save settings: ' + error.message, 'error', 10000);
+    } finally {
+        if (button) {
+            setButtonLoading(button, false);
+        }
     }
 }
 
 // Reset settings to defaults
 function resetSettings() {
     if (confirm('Are you sure you want to reset all settings to defaults?')) {
-        loadSettings();
-        showStatus('Settings reset to current values', 'info');
+        // Set default values
+        const defaults = {
+            check_interval: 60,
+            historical_hours: 2,
+            monitoring_mode: 'hybrid',
+            notification_settings: {
+                enabled: false,
+                notify_all_tweets: true,
+                notify_ai_processed_only: false,
+                notification_delay: 5
+            },
+            ai_settings: {
+                enabled: false,
+                auto_process: false,
+                batch_size: 10,
+                model: 'gpt-4o',
+                max_tokens: 150,
+                prompt: 'Analyze this Persian tweet and provide:\n1. English translation\n2. Key topics and sentiment\n3. Any notable context or references'
+            }
+        };
+        
+        // Populate form with defaults
+        populateSettingsForm(defaults);
+        showStatus('Settings reset to defaults. Click "Save All" to apply.', 'info');
     }
 }
 
 // Test notification
-async function testNotification() {
+async function testNotification(event) {
+    const button = event.target.closest('button');
+    setButtonLoading(button, true, 'Sending...');
+    
     try {
-        showStatus('Sending test notification...', 'info');
-        
         const response = await fetch('/api/test/notification', {
             method: 'POST'
         });
         
         if (response.ok) {
-            showStatus('Test notification sent!', 'success');
+            showStatus('Test notification sent successfully! Check your Telegram.', 'success', 10000);
         } else {
             throw new Error('Failed to send test notification');
         }
         
     } catch (error) {
         console.error('Error sending test notification:', error);
-        showStatus('Failed to send test notification: ' + error.message, 'error');
+        showStatus('Failed to send test notification: ' + error.message, 'error', 10000);
+    } finally {
+        setButtonLoading(button, false);
     }
 }
 
 // Pause notifications
-async function pauseNotifications() {
+async function pauseNotifications(event) {
+    const button = event.target.closest('button');
+    setButtonLoading(button, true, 'Pausing...');
+    
     try {
         const response = await fetch('/api/notifications/pause', {
             method: 'POST'
@@ -372,12 +626,17 @@ async function pauseNotifications() {
         
     } catch (error) {
         console.error('Error pausing notifications:', error);
-        showStatus('Failed to pause notifications: ' + error.message, 'error');
+        showStatus('Failed to pause notifications: ' + error.message, 'error', 10000);
+    } finally {
+        setButtonLoading(button, false);
     }
 }
 
 // Resume notifications
-async function resumeNotifications() {
+async function resumeNotifications(event) {
+    const button = event.target.closest('button');
+    setButtonLoading(button, true, 'Resuming...');
+    
     try {
         const response = await fetch('/api/notifications/resume', {
             method: 'POST'
@@ -393,16 +652,21 @@ async function resumeNotifications() {
         
     } catch (error) {
         console.error('Error resuming notifications:', error);
-        showStatus('Failed to resume notifications: ' + error.message, 'error');
+        showStatus('Failed to resume notifications: ' + error.message, 'error', 10000);
+    } finally {
+        setButtonLoading(button, false);
     }
 }
 
 // Force AI processing
-async function forceAiProcessing() {
+async function forceAiProcessing(event) {
+    const button = event.target.closest('button');
+    setButtonLoading(button, true, 'Processing...');
+    
     try {
         showStatus('Starting AI processing...', 'info');
         
-        const response = await fetch('/api/ai/process', {
+        const response = await fetch('/api/ai/force', {
             method: 'POST'
         });
         
@@ -414,7 +678,9 @@ async function forceAiProcessing() {
         
     } catch (error) {
         console.error('Error starting AI processing:', error);
-        showStatus('Failed to start AI processing: ' + error.message, 'error');
+        showStatus('Failed to start AI processing: ' + error.message, 'error', 10000);
+    } finally {
+        setButtonLoading(button, false);
     }
 }
 
@@ -425,7 +691,10 @@ function viewAiStats() {
 }
 
 // Force poll now
-async function forcePoll() {
+async function forcePoll(event) {
+    const button = event.target.closest('button');
+    setButtonLoading(button, true, 'Checking...');
+    
     try {
         showStatus('Starting manual poll...', 'info');
         
@@ -441,15 +710,20 @@ async function forcePoll() {
         
     } catch (error) {
         console.error('Error starting manual poll:', error);
-        showStatus('Failed to start manual poll: ' + error.message, 'error');
+        showStatus('Failed to start manual poll: ' + error.message, 'error', 10000);
+    } finally {
+        setButtonLoading(button, false);
     }
 }
 
 // Restart scheduler
-async function restartScheduler() {
+async function restartScheduler(event) {
     if (!confirm('Are you sure you want to restart the scheduler?')) {
         return;
     }
+    
+    const button = event.target.closest('button');
+    setButtonLoading(button, true, 'Restarting...');
     
     try {
         showStatus('Restarting scheduler...', 'info');
@@ -472,15 +746,20 @@ async function restartScheduler() {
         
     } catch (error) {
         console.error('Error restarting scheduler:', error);
-        showStatus('Failed to restart scheduler: ' + error.message, 'error');
+        showStatus('Failed to restart scheduler: ' + error.message, 'error', 10000);
+    } finally {
+        setButtonLoading(button, false);
     }
 }
 
 // Clear cache
-async function clearCache() {
+async function clearCache(event) {
     if (!confirm('Are you sure you want to clear the cache?')) {
         return;
     }
+    
+    const button = event.target.closest('button');
+    setButtonLoading(button, true, 'Clearing...');
     
     try {
         showStatus('Clearing cache...', 'info');
@@ -497,7 +776,9 @@ async function clearCache() {
         
     } catch (error) {
         console.error('Error clearing cache:', error);
-        showStatus('Failed to clear cache: ' + error.message, 'error');
+        showStatus('Failed to clear cache: ' + error.message, 'error', 10000);
+    } finally {
+        setButtonLoading(button, false);
     }
 }
 
@@ -517,9 +798,9 @@ function updateElement(id, value, className = '') {
     }
 }
 
-function showStatus(message, type) {
-    // Remove existing status alerts
-    const existingAlerts = document.querySelectorAll('.alert.status-alert');
+function showStatus(message, type, duration = null) {
+    // Remove existing status alerts of the same type
+    const existingAlerts = document.querySelectorAll(`.alert.status-alert.alert-${type}`);
     existingAlerts.forEach(alert => alert.remove());
     
     // Create new alert
@@ -530,9 +811,17 @@ function showStatus(message, type) {
         'warning': 'alert-warning'
     }[type] || 'alert-info';
     
+    const iconClass = {
+        'info': 'bi-info-circle',
+        'success': 'bi-check-circle',
+        'error': 'bi-exclamation-triangle',
+        'warning': 'bi-exclamation-circle'
+    }[type] || 'bi-info-circle';
+    
     const alert = document.createElement('div');
-    alert.className = `alert ${alertClass} alert-dismissible fade show status-alert`;
+    alert.className = `alert ${alertClass} alert-dismissible fade show status-alert alert-${type}`;
     alert.innerHTML = `
+        <i class="bi ${iconClass} me-2"></i>
         <span>${message}</span>
         <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
     `;
@@ -543,14 +832,15 @@ function showStatus(message, type) {
         content.insertBefore(alert, content.firstChild);
     }
     
-    // Auto-dismiss success messages
-    if (type === 'success' || type === 'info') {
-        setTimeout(() => {
-            if (alert.parentNode) {
-                alert.remove();
-            }
-        }, 5000);
-    }
+    // Auto-dismiss based on type or duration
+    const dismissTime = duration || (type === 'error' ? 15000 : 8000);
+    
+    setTimeout(() => {
+        if (alert.parentNode) {
+            alert.classList.remove('show');
+            setTimeout(() => alert.remove(), 150);
+        }
+    }, dismissTime);
 }
 
 function hideStatus() {
@@ -605,7 +895,7 @@ function displayMonitoredUsers(users) {
                         <h6 class="card-title mb-0">
                             <i class="bi bi-twitter text-primary"></i> @${user.username}
                         </h6>
-                        <button class="btn btn-sm btn-outline-danger" onclick="removeUser('${user.username}')" title="Remove user">
+                        <button class="btn btn-sm btn-outline-danger" onclick="removeUser('${user.username}', event)" title="Remove user">
                             <i class="bi bi-trash"></i>
                         </button>
                     </div>
@@ -631,13 +921,21 @@ function displayMonitoredUsers(users) {
 }
 
 // Add new user
-async function addNewUser() {
+async function addNewUser(event) {
+    const button = event ? event.target.closest('button') : null;
+    if (button) {
+        setButtonLoading(button, true, 'Adding...');
+    }
+    
     const input = document.getElementById('newUserInput');
     if (!input) return;
     
     const userInput = input.value.trim();
     if (!userInput) {
         showStatus('Please enter a Twitter username or URL', 'warning');
+        if (button) {
+            setButtonLoading(button, false);
+        }
         return;
     }
     
@@ -664,19 +962,28 @@ async function addNewUser() {
             // Notify dashboard to update if it's open in another tab/window
             notifyDashboardUpdate();
         } else {
-            showStatus(result.error || 'Failed to add user', 'error');
+            showStatus(result.error || 'Failed to add user', 'error', 10000);
         }
         
     } catch (error) {
         console.error('Error adding user:', error);
-        showStatus('Failed to add user: ' + error.message, 'error');
+        showStatus('Failed to add user: ' + error.message, 'error', 10000);
+    } finally {
+        if (button) {
+            setButtonLoading(button, false);
+        }
     }
 }
 
 // Remove user
-async function removeUser(username) {
+async function removeUser(username, event) {
     if (!confirm(`Are you sure you want to stop monitoring @${username}?`)) {
         return;
+    }
+    
+    const button = event ? event.target.closest('button') : null;
+    if (button) {
+        setButtonLoading(button, true, 'Removing...');
     }
     
     try {
@@ -701,22 +1008,29 @@ async function removeUser(username) {
             // Notify dashboard to update if it's open in another tab/window
             notifyDashboardUpdate();
         } else {
-            showStatus(result.error || 'Failed to remove user', 'error');
+            showStatus(result.error || 'Failed to remove user', 'error', 10000);
         }
         
     } catch (error) {
         console.error('Error removing user:', error);
-        showStatus('Failed to remove user: ' + error.message, 'error');
+        showStatus('Failed to remove user: ' + error.message, 'error', 10000);
+    } finally {
+        if (button) {
+            setButtonLoading(button, false);
+        }
     }
 }
 
 // Scrape historical tweets
-async function scrapeHistoricalTweets() {
+async function scrapeHistoricalTweets(event) {
     const hours = document.getElementById('historicalHours')?.value || 2;
     
     if (!confirm(`This will scrape tweets from the last ${hours} hours for all monitored users. Continue?`)) {
         return;
     }
+    
+    const button = event.target.closest('button');
+    setButtonLoading(button, true, 'Scraping...');
     
     try {
         showStatus('Starting historical scrape...', 'info');
@@ -740,12 +1054,14 @@ async function scrapeHistoricalTweets() {
                 loadMonitoredUsers();
             }, 2000);
         } else {
-            showStatus(result.error || 'Failed to start historical scrape', 'error');
+            showStatus(result.error || 'Failed to start historical scrape', 'error', 10000);
         }
         
     } catch (error) {
         console.error('Error starting historical scrape:', error);
-        showStatus('Failed to start historical scrape: ' + error.message, 'error');
+        showStatus('Failed to start historical scrape: ' + error.message, 'error', 10000);
+    } finally {
+        setButtonLoading(button, false);
     }
 }
 
@@ -755,7 +1071,7 @@ document.addEventListener('DOMContentLoaded', function() {
     if (newUserInput) {
         newUserInput.addEventListener('keypress', function(e) {
             if (e.key === 'Enter') {
-                addNewUser();
+                addNewUser(e);
             }
         });
     }
@@ -776,3 +1092,45 @@ function notifyDashboardUpdate() {
         localStorage.removeItem('dashboard_update');
     }, 100);
 }
+
+// Toggle between basic and advanced mode
+function toggleAdvancedMode() {
+    isAdvancedMode = !isAdvancedMode;
+    const advancedSettings = document.querySelectorAll('.advanced-setting');
+    const modeText = document.getElementById('modeText');
+    const toggleBtn = document.getElementById('toggleModeBtn');
+    
+    if (isAdvancedMode) {
+        // Show advanced settings
+        advancedSettings.forEach(element => {
+            element.style.display = '';
+            element.classList.add('fade-in');
+        });
+        modeText.textContent = 'Hide Advanced';
+        toggleBtn.classList.remove('btn-outline-info');
+        toggleBtn.classList.add('btn-info');
+        
+        // Save preference
+        localStorage.setItem('settingsAdvancedMode', 'true');
+    } else {
+        // Hide advanced settings
+        advancedSettings.forEach(element => {
+            element.style.display = 'none';
+            element.classList.remove('fade-in');
+        });
+        modeText.textContent = 'Show Advanced';
+        toggleBtn.classList.remove('btn-info');
+        toggleBtn.classList.add('btn-outline-info');
+        
+        // Save preference
+        localStorage.setItem('settingsAdvancedMode', 'false');
+    }
+}
+
+// Restore advanced mode preference on load
+document.addEventListener('DOMContentLoaded', function() {
+    const savedMode = localStorage.getItem('settingsAdvancedMode');
+    if (savedMode === 'true') {
+        toggleAdvancedMode();
+    }
+});

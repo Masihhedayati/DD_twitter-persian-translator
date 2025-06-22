@@ -551,7 +551,9 @@ def get_settings():
         
         settings = {
             'monitored_users': Config.MONITORED_USERS,
-            'check_interval': getattr(Config, 'CHECK_INTERVAL', 60),
+            'check_interval': int(database.get_setting('check_interval', '60')) if database else 60,
+            'monitoring_mode': database.get_setting('monitoring_mode', 'hybrid') if database else 'hybrid',
+            'historical_hours': int(database.get_setting('historical_hours', '2')) if database else 2,
             'twitter_api_configured': bool(Config.TWITTER_API_KEY),
             'openai_api_configured': bool(getattr(Config, 'OPENAI_API_KEY', None)),
             'telegram_configured': bool(Config.TELEGRAM_BOT_TOKEN and Config.TELEGRAM_CHAT_ID),
@@ -625,6 +627,24 @@ def update_settings():
             if 'max_tokens' in ai_settings and database:
                 database.set_setting('ai_max_tokens', str(ai_settings['max_tokens']))
                 updated_settings.append('ai_max_tokens')
+        
+        # Update Twitter settings
+        if 'twitter_settings' in data and database:
+            twitter_settings = data['twitter_settings']
+            
+            if 'check_interval' in twitter_settings:
+                database.set_setting('check_interval', str(twitter_settings['check_interval']))
+                if scheduler:
+                    scheduler.check_interval = int(twitter_settings['check_interval'])
+                updated_settings.append('check_interval')
+            
+            if 'monitoring_mode' in twitter_settings:
+                database.set_setting('monitoring_mode', twitter_settings['monitoring_mode'])
+                updated_settings.append('monitoring_mode')
+            
+            if 'historical_hours' in twitter_settings:
+                database.set_setting('historical_hours', str(twitter_settings['historical_hours']))
+                updated_settings.append('historical_hours')
         
         return jsonify({
             'success': True,
@@ -887,6 +907,68 @@ def scrape_historical_tweets():
             
     except Exception as e:
         logger.error(f"Error triggering historical scrape: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/test/notification', methods=['POST'])
+def test_notification():
+    """Send a test notification to Telegram"""
+    try:
+        if scheduler and scheduler.telegram_bot:
+            message = "🔔 Test notification from Persian News Translator System\n\n"
+            message += "If you see this message, your Telegram notifications are working correctly!"
+            
+            success = scheduler.telegram_bot.send_message(message)
+            
+            if success:
+                return jsonify({
+                    'success': True,
+                    'message': 'Test notification sent successfully'
+                })
+            else:
+                return jsonify({'error': 'Failed to send test notification'}), 500
+        else:
+            return jsonify({'error': 'Telegram bot not configured or scheduler not available'}), 400
+            
+    except Exception as e:
+        logger.error(f"Error sending test notification: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/cache/clear', methods=['POST'])
+def clear_cache():
+    """Clear application cache"""
+    try:
+        # Clear any in-memory caches
+        cleared_items = []
+        
+        # Clear scheduler cache if available
+        if scheduler:
+            if hasattr(scheduler, 'clear_cache'):
+                scheduler.clear_cache()
+                cleared_items.append('scheduler_cache')
+        
+        # Clear database cache if available
+        if database:
+            if hasattr(database, 'clear_cache'):
+                database.clear_cache()
+                cleared_items.append('database_cache')
+            
+            # Also clear any temporary data
+            database.execute("DELETE FROM tweets WHERE created_at < datetime('now', '-7 days')")
+            cleared_items.append('old_tweets')
+        
+        # Clear Flask cache if using caching
+        if hasattr(app, 'cache'):
+            app.cache.clear()
+            cleared_items.append('flask_cache')
+        
+        return jsonify({
+            'success': True,
+            'message': f'Cache cleared successfully',
+            'cleared': cleared_items
+        })
+        
+    except Exception as e:
+        logger.error(f"Error clearing cache: {e}")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/media/<filename>')

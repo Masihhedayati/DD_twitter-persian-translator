@@ -275,6 +275,182 @@
     color: #1da1f2;
 }
 
+/* Form Validation Styles */
+.form-control:focus,
+.form-select:focus {
+    border-color: #80bdff;
+    box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.25);
+}
+
+.form-control.is-valid:focus,
+.form-select.is-valid:focus {
+    border-color: #28a745;
+    box-shadow: 0 0 0 0.2rem rgba(40, 167, 69, 0.25);
+}
+
+.form-control.is-invalid:focus,
+.form-select.is-invalid:focus {
+    border-color: #dc3545;
+    box-shadow: 0 0 0 0.2rem rgba(220, 53, 69, 0.25);
+}
+
+.invalid-feedback,
+.valid-feedback {
+    display: block;
+    font-size: 0.875rem;
+    margin-top: 0.25rem;
+    animation: fadeIn 0.2s ease-in;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(-5px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+/* Help Tooltips */
+.help-tooltip {
+    display: inline-block;
+    margin-left: 0.5rem;
+    color: #6c757d;
+    cursor: help;
+}
+
+.help-tooltip:hover {
+    color: #1da1f2;
+}
+
+/* Loading States */
+.spinner-border-sm {
+    width: 1rem;
+    height: 1rem;
+    border-width: 0.15em;
+}
+
+/* Character Counter */
+#promptCharCount {
+    display: block;
+    text-align: right;
+    margin-top: 0.25rem;
+    transition: color 0.2s ease;
+}
+
+#promptCharCount.text-danger {
+    font-weight: 600;
+}
+
+/* Enhanced Status Alerts */
+.alert.status-alert {
+    border-radius: 8px;
+    border: none;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    animation: slideDown 0.3s ease-out;
+}
+
+@keyframes slideDown {
+    from { 
+        opacity: 0; 
+        transform: translateY(-20px); 
+    }
+    to { 
+        opacity: 1; 
+        transform: translateY(0); 
+    }
+}
+
+.alert.status-alert.fade:not(.show) {
+    animation: slideUp 0.3s ease-out;
+}
+
+@keyframes slideUp {
+    from { 
+        opacity: 1; 
+        transform: translateY(0); 
+    }
+    to { 
+        opacity: 0; 
+        transform: translateY(-20px); 
+    }
+}
+
+/* Tabbed Interface Styles */
+.nav-tabs {
+    border-bottom: 2px solid #dee2e6;
+    margin-bottom: 2rem;
+}
+
+.nav-tabs .nav-link {
+    color: #6c757d;
+    border: none;
+    border-bottom: 3px solid transparent;
+    padding: 0.75rem 1.5rem;
+    font-weight: 500;
+    transition: all 0.3s ease;
+}
+
+.nav-tabs .nav-link:hover {
+    color: #1da1f2;
+    border-bottom-color: #e3f2fd;
+    background-color: #f8f9fa;
+}
+
+.nav-tabs .nav-link.active {
+    color: #1da1f2;
+    background-color: transparent;
+    border: none;
+    border-bottom: 3px solid #1da1f2;
+}
+
+.nav-tabs .nav-link i {
+    margin-right: 0.5rem;
+}
+
+.tab-content {
+    animation: fadeIn 0.3s ease-in;
+}
+
+.tab-pane {
+    padding-top: 1rem;
+}
+
+/* Enhanced System Status Card */
+.system-status-card {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border: none;
+    box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
+}
+
+.system-status-card .card-header {
+    background: transparent;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.system-status-card .status-indicator {
+    box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.3);
+}
+
+.system-status-card .text-muted {
+    color: rgba(255, 255, 255, 0.8) !important;
+}
+
+/* Progressive Disclosure */
+.advanced-setting {
+    transition: all 0.3s ease;
+}
+
+.advanced-setting.fade-in {
+    animation: fadeIn 0.3s ease-in;
+}
+
+/* Mode Toggle Button */
+#toggleModeBtn {
+    transition: all 0.2s ease;
+}
+
+#toggleModeBtn.btn-info {
+    color: white;
+}
+
 /* Animation for status updates */
 @keyframes pulse {
     0% {

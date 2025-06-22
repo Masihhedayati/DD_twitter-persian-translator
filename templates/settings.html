@@ -9,11 +9,16 @@
     </h1>
     <div class="btn-toolbar mb-2 mb-md-0">
         <div class="btn-group me-2">
-            <button type="button" class="btn btn-outline-primary" onclick="saveAllSettings()">
+            <button type="button" class="btn btn-outline-primary" onclick="saveAllSettings(event)">
                 <i class="bi bi-check-circle"></i> Save All
             </button>
             <button type="button" class="btn btn-outline-secondary" onclick="resetSettings()">
                 <i class="bi bi-arrow-clockwise"></i> Reset
+            </button>
+        </div>
+        <div class="btn-group">
+            <button type="button" class="btn btn-sm btn-outline-info" id="toggleModeBtn" onclick="toggleAdvancedMode()">
+                <i class="bi bi-toggles"></i> <span id="modeText">Show Advanced</span>
             </button>
         </div>
     </div>
@@ -22,7 +27,7 @@
 <!-- System Status Overview -->
 <div class="row mb-4">
     <div class="col-12">
-        <div class="card">
+        <div class="card system-status-card">
             <div class="card-header">
                 <h5 class="mb-0"><i class="bi bi-activity"></i> System Status</h5>
             </div>
@@ -62,278 +67,364 @@
     </div>
 </div>
 
-<div class="row">
-    <!-- Twitter User Management -->
-    <div class="col-lg-12 mb-4">
-        <div class="card">
-            <div class="card-header d-flex justify-content-between align-items-center">
-                <h5 class="mb-0"><i class="bi bi-twitter"></i> Twitter User Management</h5>
-                <div class="btn-group">
-                    <button type="button" class="btn btn-sm btn-outline-success" onclick="scrapeHistoricalTweets()">
-                        <i class="bi bi-clock-history"></i> Scrape Last 2 Hours
-                    </button>
-                    <button type="button" class="btn btn-sm btn-outline-primary" onclick="forcePoll()">
-                        <i class="bi bi-arrow-clockwise"></i> Check Now
-                    </button>
-                </div>
-            </div>
-            <div class="card-body">
-                <!-- Add New User Section -->
-                <div class="row mb-4">
-                    <div class="col-12">
-                        <h6 class="mb-3"><i class="bi bi-person-plus"></i> Add New User to Monitor</h6>
-                        <div class="input-group mb-3">
-                            <span class="input-group-text">
-                                <i class="bi bi-twitter"></i>
-                            </span>
-                            <input type="text" class="form-control" id="newUserInput" 
-                                   placeholder="Paste Twitter profile URL (e.g., https://twitter.com/elonmusk) or just username">
-                            <button class="btn btn-primary" type="button" onclick="addNewUser()">
-                                <i class="bi bi-plus-circle"></i> Add User
+<!-- Tabbed Interface -->
+<ul class="nav nav-tabs mb-4" id="settingsTabs" role="tablist">
+    <li class="nav-item" role="presentation">
+        <button class="nav-link active" id="monitoring-tab" data-bs-toggle="tab" data-bs-target="#monitoring" type="button" role="tab" aria-controls="monitoring" aria-selected="true">
+            <i class="bi bi-twitter"></i> Monitoring
+        </button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link" id="processing-tab" data-bs-toggle="tab" data-bs-target="#processing" type="button" role="tab" aria-controls="processing" aria-selected="false">
+            <i class="bi bi-robot"></i> Processing
+        </button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link" id="notifications-tab" data-bs-toggle="tab" data-bs-target="#notifications" type="button" role="tab" aria-controls="notifications" aria-selected="false">
+            <i class="bi bi-bell-fill"></i> Notifications
+        </button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link" id="system-tab" data-bs-toggle="tab" data-bs-target="#system" type="button" role="tab" aria-controls="system" aria-selected="false">
+            <i class="bi bi-tools"></i> System
+        </button>
+    </li>
+</ul>
+
+<div class="tab-content" id="settingsTabContent">
+    <!-- Monitoring Tab -->
+    <div class="tab-pane fade show active" id="monitoring" role="tabpanel" aria-labelledby="monitoring-tab">
+        <!-- Tab Description -->
+        <div class="alert alert-info alert-dismissible fade show" role="alert">
+            <i class="bi bi-info-circle"></i>
+            <strong>Monitoring Configuration</strong><br>
+            This section manages which Twitter users to monitor, how often to check for new tweets, and historical data collection. You can add or remove users from the monitoring list, configure polling intervals for real-time updates, and control how far back the system looks when collecting historical tweets. The monitoring mode determines whether the system uses webhooks for real-time updates, polling for periodic checks, or a hybrid approach combining both methods.
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+        
+        <div class="row">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0"><i class="bi bi-twitter"></i> Twitter User Management</h5>
+                        <div class="btn-group">
+                            <button type="button" class="btn btn-sm btn-outline-success" onclick="scrapeHistoricalTweets(event)">
+                                <i class="bi bi-clock-history"></i> Scrape Last 2 Hours
+                            </button>
+                            <button type="button" class="btn btn-sm btn-outline-primary" onclick="forcePoll(event)">
+                                <i class="bi bi-arrow-clockwise"></i> Check Now
                             </button>
                         </div>
-                        <div class="form-text">
-                            <i class="bi bi-info-circle"></i> 
-                            You can paste a full Twitter URL like <code>https://twitter.com/username</code> or <code>https://x.com/username</code>, 
-                            or just enter the username directly (without @)
-                        </div>
                     </div>
-                </div>
-
-                <!-- Current Monitored Users -->
-                <div class="row">
-                    <div class="col-12">
-                        <h6 class="mb-3"><i class="bi bi-people"></i> Currently Monitored Users</h6>
-                        <div id="monitoredUsersList" class="row">
-                            <!-- Users will be loaded here dynamically -->
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Monitoring Settings -->
-                <div class="row mt-4">
-                    <div class="col-md-6">
-                        <div class="mb-3">
-                            <label for="checkInterval" class="form-label">Polling Interval</label>
-                            <div class="input-group">
-                                <input type="number" class="form-control" id="checkInterval" min="30" max="3600" value="60">
-                                <span class="input-group-text">seconds</span>
+                    <div class="card-body">
+                        <!-- Add New User Section -->
+                        <div class="row mb-4">
+                            <div class="col-12">
+                                <h6 class="mb-3"><i class="bi bi-person-plus"></i> Add New User to Monitor</h6>
+                                <div class="input-group mb-3">
+                                    <span class="input-group-text">
+                                        <i class="bi bi-twitter"></i>
+                                    </span>
+                                    <input type="text" class="form-control" id="newUserInput" 
+                                           placeholder="Paste Twitter profile URL (e.g., https://twitter.com/elonmusk) or just username">
+                                    <button class="btn btn-primary" type="button" onclick="addNewUser(event)">
+                                        <i class="bi bi-plus-circle"></i> Add User
+                                    </button>
+                                </div>
+                                <div class="form-text">
+                                    <i class="bi bi-info-circle"></i> 
+                                    You can paste a full Twitter URL like <code>https://twitter.com/username</code> or <code>https://x.com/username</code>, 
+                                    or just enter the username directly (without @)
+                                </div>
                             </div>
-                            <div class="form-text">How often to check for new tweets (only for fallback polling)</div>
                         </div>
-                    </div>
-                    <div class="col-md-6">
-                        <div class="mb-3">
-                            <label for="historicalHours" class="form-label">Historical Scrape Period</label>
-                            <div class="input-group">
-                                <input type="number" class="form-control" id="historicalHours" min="1" max="24" value="2">
-                                <span class="input-group-text">hours</span>
-                            </div>
-                            <div class="form-text">How far back to look when scraping historical tweets</div>
-                        </div>
-                    </div>
-                </div>
 
-                <!-- Monitoring Mode -->
-                <div class="row">
-                    <div class="col-12">
-                        <h6 class="mb-3"><i class="bi bi-gear"></i> Monitoring Mode</h6>
-                        <div class="form-check">
-                            <input class="form-check-input" type="radio" name="monitoringMode" id="hybridMode" value="hybrid" checked>
-                            <label class="form-check-label" for="hybridMode">
-                                <strong>Hybrid Mode (Recommended)</strong> - Initial historical scrape + real-time webhooks
-                            </label>
+                        <!-- Current Monitored Users -->
+                        <div class="row">
+                            <div class="col-12">
+                                <h6 class="mb-3"><i class="bi bi-people"></i> Currently Monitored Users</h6>
+                                <div id="monitoredUsersList" class="row">
+                                    <!-- Users will be loaded here dynamically -->
+                                </div>
+                            </div>
                         </div>
-                        <div class="form-check">
-                            <input class="form-check-input" type="radio" name="monitoringMode" id="webhookMode" value="webhook">
-                            <label class="form-check-label" for="webhookMode">
-                                <strong>Webhook Only</strong> - Real-time monitoring only (no historical data)
-                            </label>
+
+                        <!-- Monitoring Settings -->
+                        <div class="row mt-4 advanced-setting" style="display: none;">
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label for="checkInterval" class="form-label">Polling Interval
+                                        <i class="bi bi-info-circle help-tooltip" data-bs-toggle="tooltip" data-bs-placement="top" title="How often to check for new tweets when using polling mode. Minimum 30 seconds to avoid rate limits."></i>
+                                    </label>
+                                    <div class="input-group">
+                                        <input type="number" class="form-control" id="checkInterval" min="30" max="3600" value="60">
+                                        <span class="input-group-text">seconds</span>
+                                    </div>
+                                    <div class="form-text">How often to check for new tweets (only for fallback polling)</div>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label for="historicalHours" class="form-label">Historical Scrape Period
+                                        <i class="bi bi-info-circle help-tooltip" data-bs-toggle="tooltip" data-bs-placement="top" title="When scraping historical tweets, how far back in time to look. Maximum 24 hours."></i>
+                                    </label>
+                                    <div class="input-group">
+                                        <input type="number" class="form-control" id="historicalHours" min="1" max="24" value="2">
+                                        <span class="input-group-text">hours</span>
+                                    </div>
+                                    <div class="form-text">How far back to look when scraping historical tweets</div>
+                                </div>
+                            </div>
                         </div>
-                        <div class="form-check">
-                            <input class="form-check-input" type="radio" name="monitoringMode" id="pollingMode" value="polling">
-                            <label class="form-check-label" for="pollingMode">
-                                <strong>Polling Mode</strong> - Continuous polling every interval (backup mode)
-                            </label>
+
+                        <!-- Monitoring Mode -->
+                        <div class="row advanced-setting" style="display: none;">
+                            <div class="col-12">
+                                <h6 class="mb-3"><i class="bi bi-gear"></i> Monitoring Mode</h6>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="radio" name="monitoringMode" id="hybridMode" value="hybrid" checked>
+                                    <label class="form-check-label" for="hybridMode">
+                                        <strong>Hybrid Mode (Recommended)</strong> - Initial historical scrape + real-time webhooks
+                                    </label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="radio" name="monitoringMode" id="webhookMode" value="webhook">
+                                    <label class="form-check-label" for="webhookMode">
+                                        <strong>Webhook Only</strong> - Real-time monitoring only (no historical data)
+                                    </label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="radio" name="monitoringMode" id="pollingMode" value="polling">
+                                    <label class="form-check-label" for="pollingMode">
+                                        <strong>Polling Mode</strong> - Continuous polling every interval (backup mode)
+                                    </label>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
             </div>
         </div>
     </div>
-    
-    <!-- Notification Settings -->
-    <div class="col-lg-6 mb-4">
-        <div class="card">
-            <div class="card-header">
-                <h5 class="mb-0"><i class="bi bi-bell-fill"></i> Notifications</h5>
-            </div>
-            <div class="card-body">
-                <form id="notificationSettingsForm">
-                    <div class="mb-3">
-                        <div class="form-check form-switch">
-                            <input class="form-check-input" type="checkbox" id="notificationsEnabled">
-                            <label class="form-check-label" for="notificationsEnabled">
-                                Enable Telegram notifications
-                            </label>
-                        </div>
+
+    <!-- Processing Tab -->
+    <div class="tab-pane fade" id="processing" role="tabpanel" aria-labelledby="processing-tab">
+        <!-- Tab Description -->
+        <div class="alert alert-info alert-dismissible fade show" role="alert">
+            <i class="bi bi-info-circle"></i>
+            <strong>AI Processing Configuration</strong><br>
+            This section configures the AI translation and analysis of Persian tweets using OpenAI GPT models. You can enable automatic processing of new tweets, choose which GPT model to use for analysis, set batch processing sizes for efficiency, and customize the AI prompt to control how tweets are analyzed, translated, or summarized. The processing settings directly affect the quality and speed of tweet translations and analysis.
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+        
+        <div class="row">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0"><i class="bi bi-robot"></i> AI Processing</h5>
                     </div>
-                    
-                    <div class="mb-3">
-                        <div class="form-check">
-                            <input class="form-check-input" type="radio" name="notificationMode" id="notifyAll" value="all">
-                            <label class="form-check-label" for="notifyAll">
-                                Notify for all tweets
-                            </label>
-                        </div>
-                        <div class="form-check">
-                            <input class="form-check-input" type="radio" name="notificationMode" id="notifyAiOnly" value="ai_only">
-                            <label class="form-check-label" for="notifyAiOnly">
-                                Notify only for AI-processed tweets
-                            </label>
-                        </div>
+                    <div class="card-body">
+                        <form id="aiSettingsForm">
+                            <div class="mb-3">
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" id="aiEnabled">
+                                    <label class="form-check-label" for="aiEnabled">
+                                        Enable AI processing
+                                    </label>
+                                </div>
+                            </div>
+                            
+                            <div class="mb-3">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="autoProcessEnabled">
+                                    <label class="form-check-label" for="autoProcessEnabled">
+                                        Auto-process new tweets
+                                    </label>
+                                </div>
+                            </div>
+                            
+                            <div class="mb-3 advanced-setting" style="display: none;">
+                                <label for="aiBatchSize" class="form-label">Batch Size
+                                    <i class="bi bi-info-circle help-tooltip" data-bs-toggle="tooltip" data-bs-placement="top" title="Number of tweets to process at once. Higher values are more efficient but use more API tokens."></i>
+                                </label>
+                                <input type="number" class="form-control" id="aiBatchSize" min="1" max="50" value="10">
+                                <div class="form-text">Number of tweets to process at once</div>
+                            </div>
+                            
+                            <div class="mb-3">
+                                <label for="aiModel" class="form-label">AI Model
+                                    <i class="bi bi-info-circle help-tooltip" data-bs-toggle="tooltip" data-bs-placement="top" title="GPT-4o is recommended for Persian translation. GPT-4o Mini is faster and cheaper for simple tasks."></i>
+                                </label>
+                                <select class="form-select" id="aiModel">
+                                    <option value="gpt-3.5-turbo">GPT-3.5 Turbo (Recommended)</option>
+                                    <option value="gpt-4">GPT-4 (Higher quality, slower)</option>
+                                    <option value="gpt-4-turbo">GPT-4 Turbo</option>
+                                    <option value="gpt-4o">GPT-4o (Latest)</option>
+                                    <option value="gpt-4o-mini">GPT-4o Mini (Fast & cheap)</option>
+                                </select>
+                                <div class="form-text">Choose the OpenAI model for tweet analysis</div>
+                            </div>
+                            
+                            <div class="mb-3 advanced-setting" style="display: none;">
+                                <label for="aiMaxTokens" class="form-label">Max Tokens
+                                    <i class="bi bi-info-circle help-tooltip" data-bs-toggle="tooltip" data-bs-placement="top" title="Maximum length of AI response. Higher values allow longer translations but cost more."></i>
+                                </label>
+                                <input type="number" class="form-control" id="aiMaxTokens" min="50" max="1000" value="150">
+                                <div class="form-text">Maximum tokens for AI response (50-1000)</div>
+                            </div>
+                            
+                            <div class="mb-3">
+                                <label for="aiPrompt" class="form-label">AI Analysis Prompt
+                                    <i class="bi bi-info-circle help-tooltip" data-bs-toggle="tooltip" data-bs-placement="top" title="Instructions for the AI on how to analyze tweets. Customize for translation, sentiment analysis, or summarization."></i>
+                                </label>
+                                <textarea class="form-control" id="aiPrompt" rows="4" placeholder="Enter your custom prompt for AI tweet analysis...">Analyze this tweet and provide a brief summary of its key points and sentiment.</textarea>
+                                <div class="form-text">
+                                    Customize how AI analyzes tweets. You can include instructions for:
+                                    <br>• Sentiment analysis • Topic extraction • Summary generation • Translation
+                                </div>
+                            </div>
+                            
+                            <div class="d-flex gap-2">
+                                <button type="button" class="btn btn-sm btn-outline-primary" onclick="forceAiProcessing(event)">
+                                    <i class="bi bi-cpu"></i> Process Now
+                                </button>
+                                <button type="button" class="btn btn-sm btn-outline-info" onclick="viewAiStats()">
+                                    <i class="bi bi-graph-up"></i> View Stats
+                                </button>
+                            </div>
+                        </form>
                     </div>
-                    
-                    <div class="mb-3">
-                        <label for="notificationDelay" class="form-label">Notification Delay</label>
-                        <div class="input-group">
-                            <input type="number" class="form-control" id="notificationDelay" min="0" max="300" value="5">
-                            <span class="input-group-text">seconds</span>
-                        </div>
-                        <div class="form-text">Delay before sending notifications (0-300 seconds)</div>
-                    </div>
-                    
-                    <div class="d-flex gap-2">
-                        <button type="button" class="btn btn-sm btn-outline-primary" onclick="testNotification()">
-                            <i class="bi bi-send"></i> Test Notification
-                        </button>
-                        <button type="button" class="btn btn-sm btn-outline-warning" onclick="pauseNotifications()">
-                            <i class="bi bi-pause"></i> Pause
-                        </button>
-                        <button type="button" class="btn btn-sm btn-outline-success" onclick="resumeNotifications()">
-                            <i class="bi bi-play"></i> Resume
-                        </button>
-                    </div>
-                </form>
+                </div>
             </div>
         </div>
     </div>
-    
-    <!-- AI Processing Settings -->
-    <div class="col-lg-6 mb-4">
-        <div class="card">
-            <div class="card-header">
-                <h5 class="mb-0"><i class="bi bi-robot"></i> AI Processing</h5>
-            </div>
-            <div class="card-body">
-                <form id="aiSettingsForm">
-                    <div class="mb-3">
-                        <div class="form-check form-switch">
-                            <input class="form-check-input" type="checkbox" id="aiEnabled">
-                            <label class="form-check-label" for="aiEnabled">
-                                Enable AI processing
-                            </label>
-                        </div>
+
+    <!-- Notifications Tab -->
+    <div class="tab-pane fade" id="notifications" role="tabpanel" aria-labelledby="notifications-tab">
+        <!-- Tab Description -->
+        <div class="alert alert-info alert-dismissible fade show" role="alert">
+            <i class="bi bi-info-circle"></i>
+            <strong>Notification Settings</strong><br>
+            This section controls how and when notifications are sent to Telegram about new or processed tweets. You can enable or disable Telegram notifications, choose whether to notify for all tweets or only AI-processed ones, set notification delays to batch multiple tweets, and test the notification system. Use the pause and resume buttons to temporarily control notification flow without changing your settings.
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+        
+        <div class="row">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0"><i class="bi bi-bell-fill"></i> Notifications</h5>
                     </div>
-                    
-                    <div class="mb-3">
-                        <div class="form-check">
-                            <input class="form-check-input" type="checkbox" id="autoProcessEnabled">
-                            <label class="form-check-label" for="autoProcessEnabled">
-                                Auto-process new tweets
-                            </label>
-                        </div>
+                    <div class="card-body">
+                        <form id="notificationSettingsForm">
+                            <div class="mb-3">
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" id="notificationsEnabled">
+                                    <label class="form-check-label" for="notificationsEnabled">
+                                        Enable Telegram notifications
+                                    </label>
+                                </div>
+                            </div>
+                            
+                            <div class="mb-3">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="radio" name="notificationMode" id="notifyAll" value="all">
+                                    <label class="form-check-label" for="notifyAll">
+                                        Notify for all tweets
+                                    </label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="radio" name="notificationMode" id="notifyAiOnly" value="ai_only">
+                                    <label class="form-check-label" for="notifyAiOnly">
+                                        Notify only for AI-processed tweets
+                                    </label>
+                                </div>
+                            </div>
+                            
+                            <div class="mb-3">
+                                <label for="notificationDelay" class="form-label">Notification Delay
+                                    <i class="bi bi-info-circle help-tooltip" data-bs-toggle="tooltip" data-bs-placement="top" title="Wait time before sending notifications. Useful to batch multiple tweets together."></i>
+                                </label>
+                                <div class="input-group">
+                                    <input type="number" class="form-control" id="notificationDelay" min="0" max="300" value="5">
+                                    <span class="input-group-text">seconds</span>
+                                </div>
+                                <div class="form-text">Delay before sending notifications (0-300 seconds)</div>
+                            </div>
+                            
+                            <div class="d-flex gap-2">
+                                <button type="button" class="btn btn-sm btn-outline-primary" onclick="testNotification(event)">
+                                    <i class="bi bi-send"></i> Test Notification
+                                </button>
+                                <button type="button" class="btn btn-sm btn-outline-warning" onclick="pauseNotifications(event)">
+                                    <i class="bi bi-pause"></i> Pause
+                                </button>
+                                <button type="button" class="btn btn-sm btn-outline-success" onclick="resumeNotifications(event)">
+                                    <i class="bi bi-play"></i> Resume
+                                </button>
+                            </div>
+                        </form>
                     </div>
-                    
-                    <div class="mb-3">
-                        <label for="aiBatchSize" class="form-label">Batch Size</label>
-                        <input type="number" class="form-control" id="aiBatchSize" min="1" max="50" value="10">
-                        <div class="form-text">Number of tweets to process at once</div>
-                    </div>
-                    
-                    <div class="mb-3">
-                        <label for="aiModel" class="form-label">AI Model</label>
-                        <select class="form-select" id="aiModel">
-                            <option value="gpt-3.5-turbo">GPT-3.5 Turbo (Recommended)</option>
-                            <option value="gpt-4">GPT-4 (Higher quality, slower)</option>
-                            <option value="gpt-4-turbo">GPT-4 Turbo</option>
-                            <option value="gpt-4o">GPT-4o (Latest)</option>
-                            <option value="gpt-4o-mini">GPT-4o Mini (Fast & cheap)</option>
-                        </select>
-                        <div class="form-text">Choose the OpenAI model for tweet analysis</div>
-                    </div>
-                    
-                    <div class="mb-3">
-                        <label for="aiMaxTokens" class="form-label">Max Tokens</label>
-                        <input type="number" class="form-control" id="aiMaxTokens" min="50" max="1000" value="150">
-                        <div class="form-text">Maximum tokens for AI response (50-1000)</div>
-                    </div>
-                    
-                    <div class="mb-3">
-                        <label for="aiPrompt" class="form-label">AI Analysis Prompt</label>
-                        <textarea class="form-control" id="aiPrompt" rows="4" placeholder="Enter your custom prompt for AI tweet analysis...">Analyze this tweet and provide a brief summary of its key points and sentiment.</textarea>
-                        <div class="form-text">
-                            Customize how AI analyzes tweets. You can include instructions for:
-                            <br>• Sentiment analysis • Topic extraction • Summary generation • Translation
-                        </div>
-                    </div>
-                    
-                    <div class="d-flex gap-2">
-                        <button type="button" class="btn btn-sm btn-outline-primary" onclick="forceAiProcessing()">
-                            <i class="bi bi-cpu"></i> Process Now
-                        </button>
-                        <button type="button" class="btn btn-sm btn-outline-info" onclick="viewAiStats()">
-                            <i class="bi bi-graph-up"></i> View Stats
-                        </button>
-                    </div>
-                </form>
+                </div>
             </div>
         </div>
     </div>
-    
-    <!-- System Control -->
-    <div class="col-lg-6 mb-4">
-        <div class="card">
-            <div class="card-header">
-                <h5 class="mb-0"><i class="bi bi-tools"></i> System Control</h5>
-            </div>
-            <div class="card-body">
-                <div class="mb-3">
-                    <h6>Quick Actions</h6>
-                    <div class="d-grid gap-2">
-                        <button type="button" class="btn btn-outline-primary" onclick="forcePoll()">
-                            <i class="bi bi-arrow-clockwise"></i> Force Poll Now
-                        </button>
-                        <button type="button" class="btn btn-outline-success" onclick="restartScheduler()">
-                            <i class="bi bi-bootstrap-reboot"></i> Restart Scheduler
-                        </button>
-                        <button type="button" class="btn btn-outline-warning" onclick="clearCache()">
-                            <i class="bi bi-trash"></i> Clear Cache
-                        </button>
+
+    <!-- System Tab -->
+    <div class="tab-pane fade" id="system" role="tabpanel" aria-labelledby="system-tab">
+        <!-- Tab Description -->
+        <div class="alert alert-info alert-dismissible fade show" role="alert">
+            <i class="bi bi-info-circle"></i>
+            <strong>System Maintenance</strong><br>
+            This section provides system maintenance tools and performance monitoring. You can restart the scheduler service, clear system cache, check API configuration status, monitor database size and media storage usage, and view performance metrics like processing times and success rates. These tools help ensure the system runs smoothly and efficiently while providing insights into resource usage and system health.
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+        
+        <div class="row">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0"><i class="bi bi-tools"></i> System Control</h5>
                     </div>
-                </div>
-                
-                <div class="mb-3">
-                    <h6>Database</h6>
-                    <div class="d-flex justify-content-between align-items-center mb-2">
-                        <span>Database Size:</span>
-                        <span id="databaseSize" class="badge bg-secondary">Loading...</span>
-                    </div>
-                    <div class="d-flex justify-content-between align-items-center mb-2">
-                        <span>Media Files:</span>
-                        <span id="mediaFilesCount" class="badge bg-secondary">Loading...</span>
-                    </div>
-                </div>
-                
-                <div class="mb-3">
-                    <h6>Performance</h6>
-                    <div class="d-flex justify-content-between align-items-center mb-2">
-                        <span>Avg Processing Time:</span>
-                        <span id="avgProcessingTime" class="badge bg-secondary">Loading...</span>
-                    </div>
-                    <div class="d-flex justify-content-between align-items-center mb-2">
-                        <span>Success Rate:</span>
-                        <span id="successRate" class="badge bg-secondary">Loading...</span>
+                    <div class="card-body">
+                        <div class="mb-3">
+                            <h6>Quick Actions</h6>
+                            <div class="d-grid gap-2">
+                                <button type="button" class="btn btn-outline-success" onclick="restartScheduler(event)">
+                                    <i class="bi bi-bootstrap-reboot"></i> Restart Scheduler
+                                </button>
+                                <button type="button" class="btn btn-outline-warning" onclick="clearCache(event)">
+                                    <i class="bi bi-trash"></i> Clear Cache
+                                </button>
+                                <button type="button" class="btn btn-outline-info" data-bs-toggle="modal" data-bs-target="#apiConfigModal">
+                                    <i class="bi bi-key"></i> API Status
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <h6>Database</h6>
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <span>Database Size:</span>
+                                <span id="databaseSize" class="badge bg-secondary">Loading...</span>
+                            </div>
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <span>Media Files:</span>
+                                <span id="mediaFilesCount" class="badge bg-secondary">Loading...</span>
+                            </div>
+                        </div>
+                        
+                        <div class="mb-3 advanced-setting" style="display: none;">
+                            <h6>Performance</h6>
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <span>Avg Processing Time:</span>
+                                <span id="avgProcessingTime" class="badge bg-secondary">Loading...</span>
+                            </div>
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <span>Success Rate:</span>
+                                <span id="successRate" class="badge bg-secondary">Loading...</span>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -382,4 +473,13 @@
 
 {% block scripts %}
 <script src="{{ url_for('static', filename='js/settings.js') }}"></script>
-{% endblock %} 
+<script>
+// Initialize Bootstrap tooltips
+document.addEventListener('DOMContentLoaded', function() {
+    var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+    var tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
+        return new bootstrap.Tooltip(tooltipTriggerEl);
+    });
+});
+</script>
+{% endblock %}
