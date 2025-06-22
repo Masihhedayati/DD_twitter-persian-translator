@@ -1,0 +1,65 @@
+# Core Web Framework
+Flask==2.3.3
+Werkzeug==2.3.7
+
+# Database & ORM
+SQLAlchemy==2.0.21
+Flask-SQLAlchemy==3.1.1
+
+# HTTP Requests & Async Processing
+requests==2.31.0
+aiohttp==3.8.6
+aiofiles==23.2.1
+
+# Background Task Scheduling
+schedule==1.2.0
+
+# Twitter API Integration
+tweepy==4.14.0
+
+# OpenAI Integration
+openai>=1.0.0
+
+# Telegram Bot Integration
+python-telegram-bot==20.6
+
+# Data Processing & Utilities
+python-dateutil==2.8.2
+python-dotenv==1.0.0
+Pillow==10.0.1  # Image processing
+moviepy==1.0.3  # Video processing
+
+# Configuration & Environment
+PyYAML==6.0.1
+
+# Logging & Monitoring
+structlog==23.1.0
+
+# Testing Framework
+pytest==7.4.2
+pytest-flask==1.3.0
+pytest-asyncio==0.21.1
+
+# Development Tools
+black==23.9.1
+flake8==6.1.0
+isort==5.12.0
+
+# Security & Validation
+validators==0.22.0
+cryptography==41.0.7
+
+# Database Migration (if needed later)
+Flask-Migrate==4.0.5
+
+# Performance Monitoring
+psutil==5.9.6
+
+# File Type Detection
+python-magic==0.4.27
+
+# URL Processing
+urllib3==2.0.7
+
+# Token counting for OpenAI
+tiktoken>=0.5.0 

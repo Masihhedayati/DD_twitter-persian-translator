@@ -1,0 +1,73 @@
+version: '3.8'
+
+services:
+  twitter-monitor:
+    build: ..
+    container_name: twitter-monitor
+    ports:
+      - "5001:5001"
+    environment:
+      - TWITTER_API_KEY=eef344fe89894d7bbeafe79e6f822d24
+      - OPENAI_API_KEY=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
+      - OPENAI_MODEL=gpt-4o
+      - OPENAI_MAX_TOKENS=1000
+      - DEFAULT_AI_MODEL=gpt-4o
+      - DEFAULT_AI_MAX_TOKENS=1000
+      - TELEGRAM_BOT_TOKEN=7984140001:AAEGVVKzgJCFUPCJJAlqXBMrs1YEGHJ_1CA
+      - TELEGRAM_CHAT_ID=-1002793297036
+      - MONITORED_USERS=${MONITORED_USERS:-elonmusk,naval,paulg}
+      - CHECK_INTERVAL=${CHECK_INTERVAL:-60}
+      - PORT=5001
+      - DEBUG=${DEBUG:-False}
+      - WEBHOOK_ONLY_MODE=${WEBHOOK_ONLY_MODE:-false}
+      - HYBRID_MODE=${HYBRID_MODE:-true}
+      - HISTORICAL_HOURS=${HISTORICAL_HOURS:-2}
+      - TWITTER_WEBHOOK_SECRET=${TWITTER_WEBHOOK_SECRET}
+      - WEBHOOK_URL=${WEBHOOK_URL}
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./media:/app/media
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  redis:
+    image: redis:7-alpine
+    container_name: twitter-monitor-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  postgres:
+    image: postgres:15-alpine
+    container_name: twitter-monitor-postgres
+    environment:
+      - POSTGRES_DB=twitter_monitor
+      - POSTGRES_USER=twitter_monitor
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-secure_password_change_me}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U twitter_monitor"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  redis_data:
+  postgres_data: 

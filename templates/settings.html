@@ -1,0 +1,385 @@
+{% extends "base.html" %}
+
+{% block title %}Settings - Twitter Monitor{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+    <h1 class="h2">
+        <i class="bi bi-gear-fill"></i> System Settings
+    </h1>
+    <div class="btn-toolbar mb-2 mb-md-0">
+        <div class="btn-group me-2">
+            <button type="button" class="btn btn-outline-primary" onclick="saveAllSettings()">
+                <i class="bi bi-check-circle"></i> Save All
+            </button>
+            <button type="button" class="btn btn-outline-secondary" onclick="resetSettings()">
+                <i class="bi bi-arrow-clockwise"></i> Reset
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- System Status Overview -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-activity"></i> System Status</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-3">
+                        <div class="d-flex align-items-center">
+                            <div class="status-indicator status-unknown me-2" id="systemStatus"></div>
+                            <strong>System Health</strong>
+                        </div>
+                        <small class="text-muted" id="systemUptime">Loading...</small>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="d-flex align-items-center">
+                            <div class="status-indicator status-unknown me-2" id="schedulerStatus"></div>
+                            <strong>Scheduler</strong>
+                        </div>
+                        <small class="text-muted" id="schedulerInfo">Loading...</small>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="d-flex align-items-center">
+                            <div class="status-indicator status-unknown me-2" id="apiStatus"></div>
+                            <strong>APIs</strong>
+                        </div>
+                        <small class="text-muted" id="apiInfo">Loading...</small>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="d-flex align-items-center">
+                            <div class="status-indicator status-unknown me-2" id="storageStatus"></div>
+                            <strong>Storage</strong>
+                        </div>
+                        <small class="text-muted" id="storageInfo">Loading...</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <!-- Twitter User Management -->
+    <div class="col-lg-12 mb-4">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="bi bi-twitter"></i> Twitter User Management</h5>
+                <div class="btn-group">
+                    <button type="button" class="btn btn-sm btn-outline-success" onclick="scrapeHistoricalTweets()">
+                        <i class="bi bi-clock-history"></i> Scrape Last 2 Hours
+                    </button>
+                    <button type="button" class="btn btn-sm btn-outline-primary" onclick="forcePoll()">
+                        <i class="bi bi-arrow-clockwise"></i> Check Now
+                    </button>
+                </div>
+            </div>
+            <div class="card-body">
+                <!-- Add New User Section -->
+                <div class="row mb-4">
+                    <div class="col-12">
+                        <h6 class="mb-3"><i class="bi bi-person-plus"></i> Add New User to Monitor</h6>
+                        <div class="input-group mb-3">
+                            <span class="input-group-text">
+                                <i class="bi bi-twitter"></i>
+                            </span>
+                            <input type="text" class="form-control" id="newUserInput" 
+                                   placeholder="Paste Twitter profile URL (e.g., https://twitter.com/elonmusk) or just username">
+                            <button class="btn btn-primary" type="button" onclick="addNewUser()">
+                                <i class="bi bi-plus-circle"></i> Add User
+                            </button>
+                        </div>
+                        <div class="form-text">
+                            <i class="bi bi-info-circle"></i> 
+                            You can paste a full Twitter URL like <code>https://twitter.com/username</code> or <code>https://x.com/username</code>, 
+                            or just enter the username directly (without @)
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Current Monitored Users -->
+                <div class="row">
+                    <div class="col-12">
+                        <h6 class="mb-3"><i class="bi bi-people"></i> Currently Monitored Users</h6>
+                        <div id="monitoredUsersList" class="row">
+                            <!-- Users will be loaded here dynamically -->
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Monitoring Settings -->
+                <div class="row mt-4">
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <label for="checkInterval" class="form-label">Polling Interval</label>
+                            <div class="input-group">
+                                <input type="number" class="form-control" id="checkInterval" min="30" max="3600" value="60">
+                                <span class="input-group-text">seconds</span>
+                            </div>
+                            <div class="form-text">How often to check for new tweets (only for fallback polling)</div>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <label for="historicalHours" class="form-label">Historical Scrape Period</label>
+                            <div class="input-group">
+                                <input type="number" class="form-control" id="historicalHours" min="1" max="24" value="2">
+                                <span class="input-group-text">hours</span>
+                            </div>
+                            <div class="form-text">How far back to look when scraping historical tweets</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Monitoring Mode -->
+                <div class="row">
+                    <div class="col-12">
+                        <h6 class="mb-3"><i class="bi bi-gear"></i> Monitoring Mode</h6>
+                        <div class="form-check">
+                            <input class="form-check-input" type="radio" name="monitoringMode" id="hybridMode" value="hybrid" checked>
+                            <label class="form-check-label" for="hybridMode">
+                                <strong>Hybrid Mode (Recommended)</strong> - Initial historical scrape + real-time webhooks
+                            </label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="radio" name="monitoringMode" id="webhookMode" value="webhook">
+                            <label class="form-check-label" for="webhookMode">
+                                <strong>Webhook Only</strong> - Real-time monitoring only (no historical data)
+                            </label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="radio" name="monitoringMode" id="pollingMode" value="polling">
+                            <label class="form-check-label" for="pollingMode">
+                                <strong>Polling Mode</strong> - Continuous polling every interval (backup mode)
+                            </label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Notification Settings -->
+    <div class="col-lg-6 mb-4">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-bell-fill"></i> Notifications</h5>
+            </div>
+            <div class="card-body">
+                <form id="notificationSettingsForm">
+                    <div class="mb-3">
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="notificationsEnabled">
+                            <label class="form-check-label" for="notificationsEnabled">
+                                Enable Telegram notifications
+                            </label>
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <div class="form-check">
+                            <input class="form-check-input" type="radio" name="notificationMode" id="notifyAll" value="all">
+                            <label class="form-check-label" for="notifyAll">
+                                Notify for all tweets
+                            </label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="radio" name="notificationMode" id="notifyAiOnly" value="ai_only">
+                            <label class="form-check-label" for="notifyAiOnly">
+                                Notify only for AI-processed tweets
+                            </label>
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="notificationDelay" class="form-label">Notification Delay</label>
+                        <div class="input-group">
+                            <input type="number" class="form-control" id="notificationDelay" min="0" max="300" value="5">
+                            <span class="input-group-text">seconds</span>
+                        </div>
+                        <div class="form-text">Delay before sending notifications (0-300 seconds)</div>
+                    </div>
+                    
+                    <div class="d-flex gap-2">
+                        <button type="button" class="btn btn-sm btn-outline-primary" onclick="testNotification()">
+                            <i class="bi bi-send"></i> Test Notification
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-warning" onclick="pauseNotifications()">
+                            <i class="bi bi-pause"></i> Pause
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-success" onclick="resumeNotifications()">
+                            <i class="bi bi-play"></i> Resume
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    
+    <!-- AI Processing Settings -->
+    <div class="col-lg-6 mb-4">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-robot"></i> AI Processing</h5>
+            </div>
+            <div class="card-body">
+                <form id="aiSettingsForm">
+                    <div class="mb-3">
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="aiEnabled">
+                            <label class="form-check-label" for="aiEnabled">
+                                Enable AI processing
+                            </label>
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="autoProcessEnabled">
+                            <label class="form-check-label" for="autoProcessEnabled">
+                                Auto-process new tweets
+                            </label>
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="aiBatchSize" class="form-label">Batch Size</label>
+                        <input type="number" class="form-control" id="aiBatchSize" min="1" max="50" value="10">
+                        <div class="form-text">Number of tweets to process at once</div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="aiModel" class="form-label">AI Model</label>
+                        <select class="form-select" id="aiModel">
+                            <option value="gpt-3.5-turbo">GPT-3.5 Turbo (Recommended)</option>
+                            <option value="gpt-4">GPT-4 (Higher quality, slower)</option>
+                            <option value="gpt-4-turbo">GPT-4 Turbo</option>
+                            <option value="gpt-4o">GPT-4o (Latest)</option>
+                            <option value="gpt-4o-mini">GPT-4o Mini (Fast & cheap)</option>
+                        </select>
+                        <div class="form-text">Choose the OpenAI model for tweet analysis</div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="aiMaxTokens" class="form-label">Max Tokens</label>
+                        <input type="number" class="form-control" id="aiMaxTokens" min="50" max="1000" value="150">
+                        <div class="form-text">Maximum tokens for AI response (50-1000)</div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="aiPrompt" class="form-label">AI Analysis Prompt</label>
+                        <textarea class="form-control" id="aiPrompt" rows="4" placeholder="Enter your custom prompt for AI tweet analysis...">Analyze this tweet and provide a brief summary of its key points and sentiment.</textarea>
+                        <div class="form-text">
+                            Customize how AI analyzes tweets. You can include instructions for:
+                            <br>• Sentiment analysis • Topic extraction • Summary generation • Translation
+                        </div>
+                    </div>
+                    
+                    <div class="d-flex gap-2">
+                        <button type="button" class="btn btn-sm btn-outline-primary" onclick="forceAiProcessing()">
+                            <i class="bi bi-cpu"></i> Process Now
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-info" onclick="viewAiStats()">
+                            <i class="bi bi-graph-up"></i> View Stats
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    
+    <!-- System Control -->
+    <div class="col-lg-6 mb-4">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-tools"></i> System Control</h5>
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <h6>Quick Actions</h6>
+                    <div class="d-grid gap-2">
+                        <button type="button" class="btn btn-outline-primary" onclick="forcePoll()">
+                            <i class="bi bi-arrow-clockwise"></i> Force Poll Now
+                        </button>
+                        <button type="button" class="btn btn-outline-success" onclick="restartScheduler()">
+                            <i class="bi bi-bootstrap-reboot"></i> Restart Scheduler
+                        </button>
+                        <button type="button" class="btn btn-outline-warning" onclick="clearCache()">
+                            <i class="bi bi-trash"></i> Clear Cache
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="mb-3">
+                    <h6>Database</h6>
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <span>Database Size:</span>
+                        <span id="databaseSize" class="badge bg-secondary">Loading...</span>
+                    </div>
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <span>Media Files:</span>
+                        <span id="mediaFilesCount" class="badge bg-secondary">Loading...</span>
+                    </div>
+                </div>
+                
+                <div class="mb-3">
+                    <h6>Performance</h6>
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <span>Avg Processing Time:</span>
+                        <span id="avgProcessingTime" class="badge bg-secondary">Loading...</span>
+                    </div>
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <span>Success Rate:</span>
+                        <span id="successRate" class="badge bg-secondary">Loading...</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- API Configuration Modal -->
+<div class="modal fade" id="apiConfigModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">API Configuration</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-warning">
+                    <i class="bi bi-exclamation-triangle"></i>
+                    <strong>Note:</strong> API keys are configured via environment variables for security.
+                </div>
+                
+                <h6>Current Configuration Status:</h6>
+                <ul class="list-group list-group-flush">
+                    <li class="list-group-item d-flex justify-content-between align-items-center">
+                        Twitter API
+                        <span id="twitterApiStatus" class="badge bg-secondary">Loading...</span>
+                    </li>
+                    <li class="list-group-item d-flex justify-content-between align-items-center">
+                        OpenAI API
+                        <span id="openaiApiStatus" class="badge bg-secondary">Loading...</span>
+                    </li>
+                    <li class="list-group-item d-flex justify-content-between align-items-center">
+                        Telegram Bot
+                        <span id="telegramApiStatus" class="badge bg-secondary">Loading...</span>
+                    </li>
+                </ul>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                <button type="button" class="btn btn-primary" onclick="refreshApiStatus()">Refresh Status</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/settings.js') }}"></script>
+{% endblock %} 

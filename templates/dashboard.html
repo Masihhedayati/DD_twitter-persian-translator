@@ -1,0 +1,358 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - Twitter Monitor{% endblock %}
+
+{% block content %}
+<div class="row">
+    <!-- Header -->
+    <div class="col-12 mb-4">
+        <div class="d-flex justify-content-between align-items-center">
+            <h1 class="h2">
+                <i class="bi bi-speedometer2"></i> Dashboard
+            </h1>
+            <div class="d-flex gap-2">
+                <button class="btn btn-success" id="refreshBtn">
+                    <i class="bi bi-arrow-clockwise"></i> Refresh
+                </button>
+                <div class="btn-group">
+                    <button class="btn btn-outline-primary dropdown-toggle" data-bs-toggle="dropdown">
+                        <i class="bi bi-funnel"></i> Filter
+                    </button>
+                    <ul class="dropdown-menu">
+                        <li><a class="dropdown-item" href="#" data-filter="all">All Tweets</a></li>
+                        <li><a class="dropdown-item" href="#" data-filter="images">With Images</a></li>
+                        <li><a class="dropdown-item" href="#" data-filter="videos">With Videos</a></li>
+                        <li><a class="dropdown-item" href="#" data-filter="ai">AI Processed</a></li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Stats Cards -->
+    <div class="col-md-3 mb-4">
+        <div class="card text-white bg-primary">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h4 class="card-title" data-stat="total-tweets">0</h4>
+                        <p class="card-text">Total Tweets</p>
+                    </div>
+                    <div class="align-self-center">
+                        <i class="bi bi-chat-dots fs-1"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-3 mb-4">
+        <div class="card text-white bg-success">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h4 class="card-title" data-stat="media-files">0</h4>
+                        <p class="card-text">Media Files</p>
+                    </div>
+                    <div class="align-self-center">
+                        <i class="bi bi-file-earmark-image fs-1"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-3 mb-4">
+        <div class="card text-white bg-warning">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h4 class="card-title" data-stat="ai-processed">0</h4>
+                        <p class="card-text">AI Processed</p>
+                    </div>
+                    <div class="align-self-center">
+                        <i class="bi bi-robot fs-1"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-3 mb-4">
+        <div class="card text-white bg-info">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h4 class="card-title" data-stat="notifications">0</h4>
+                        <p class="card-text">Notifications</p>
+                    </div>
+                    <div class="align-self-center">
+                        <i class="bi bi-bell fs-1"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Enhanced Search and Filter Bar -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-body">
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <div class="input-group">
+                            <span class="input-group-text">
+                                <i class="bi bi-search"></i>
+                            </span>
+                            <input type="text" class="form-control" placeholder="Search tweets..." id="searchInput"
+                                   oninput="handleLiveSearch()" onkeypress="if(event.key==='Enter') handleSearch()">
+                            <button class="btn btn-outline-secondary" type="button" id="searchBtn" onclick="handleSearch()">Search</button>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <select class="form-select" id="usernameFilter" onchange="handleUsernameFilter(this.value)">
+                            <option value="">All Users</option>
+                            <!-- User options will be dynamically loaded -->
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="d-flex gap-2">
+                            <div class="btn-group" role="group">
+                                <button type="button" class="btn btn-outline-secondary active filter-btn" onclick="handleFilter('all')" title="All tweets">All</button>
+                                <button type="button" class="btn btn-outline-secondary filter-btn" onclick="handleFilter('images')" title="Tweets with images">📷</button>
+                                <button type="button" class="btn btn-outline-secondary filter-btn" onclick="handleFilter('videos')" title="Tweets with videos">🎥</button>
+                                <button type="button" class="btn btn-outline-secondary filter-btn" onclick="handleFilter('ai')" title="AI processed tweets">🤖</button>
+                            </div>
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" id="realTimeToggle" checked onchange="toggleRealTime()">
+                                <label class="form-check-label" for="realTimeToggle" title="Auto-refresh tweets">
+                                    <small>Live</small>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Active Filters Display -->
+                <div id="activeFilters" class="mt-2" style="display: none;">
+                    <small class="text-muted">Active filters:</small>
+                    <div id="filterTags" class="d-inline-flex flex-wrap gap-1 ms-2"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Tweet Feed -->
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">
+                    <i class="bi bi-twitter"></i> Recent Tweets
+                </h5>
+                <small class="text-muted">Last updated: {{ current_time.strftime('%Y-%m-%d %H:%M:%S') }}</small>
+            </div>
+            <div class="card-body">
+                <div id="tweetFeed">
+                    <!-- Tweets will be loaded here -->
+                    <div class="text-center py-5">
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                        <p class="mt-3 text-muted">Loading tweets...</p>
+                    </div>
+                </div>
+                
+                <!-- Load More Button -->
+                <div class="text-center mt-3">
+                    <button class="btn btn-outline-primary" id="loadMoreBtn" style="display: none;">
+                        <i class="bi bi-arrow-down-circle"></i> Load More
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Tweet Template (Hidden) -->
+<div id="tweetTemplate" style="display: none;">
+    <div class="card mb-3 tweet-card">
+        <div class="card-body">
+            <div class="d-flex justify-content-between align-items-start mb-2">
+                <div>
+                    <h6 class="mb-0 tweet-display-name">Display Name</h6>
+                    <small class="text-muted tweet-username">@username</small>
+                </div>
+                <small class="text-muted tweet-timestamp">2 hours ago</small>
+            </div>
+            
+            <div class="tweet-content mb-3" style="white-space: pre-wrap; word-wrap: break-word;">
+                Tweet content goes here...
+            </div>
+            
+            <!-- Media Gallery -->
+            <div class="tweet-media mb-3" style="display: none;">
+                <!-- Media items will be inserted here -->
+            </div>
+            
+            <!-- AI Analysis -->
+            <div class="tweet-ai-analysis" style="display: none;">
+                <div class="alert alert-info">
+                    <i class="bi bi-robot"></i> <strong>AI Analysis:</strong>
+                    <div class="mt-1">AI analysis content...</div>
+                </div>
+            </div>
+            
+            <!-- Tweet Metrics -->
+            <div class="d-flex justify-content-between align-items-center">
+                <div class="d-flex gap-3">
+                    <small class="text-muted">
+                        <i class="bi bi-heart"></i> <span class="tweet-likes">0</span>
+                    </small>
+                    <small class="text-muted">
+                        <i class="bi bi-arrow-repeat"></i> <span class="tweet-retweets">0</span>
+                    </small>
+                    <small class="text-muted">
+                        <i class="bi bi-chat"></i> <span class="tweet-replies">0</span>
+                    </small>
+                </div>
+                
+                <div class="tweet-status-indicators">
+                    <!-- Status indicators will be added here -->
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Load initial tweets
+    loadTweets();
+    
+    // Refresh button
+    document.getElementById('refreshBtn').addEventListener('click', function() {
+        loadTweets();
+    });
+    
+    // Auto-refresh every 30 seconds
+    setInterval(loadTweets, 30000);
+});
+
+function loadTweets() {
+    fetch('/api/tweets')
+        .then(response => response.json())
+        .then(data => {
+            const feedContainer = document.getElementById('tweetFeed');
+            
+            if (data.count === 0) {
+                feedContainer.innerHTML = `
+                    <div class="text-center py-5">
+                        <i class="bi bi-twitter text-muted" style="font-size: 3rem;"></i>
+                        <p class="mt-3 text-muted">No tweets found. Make sure your monitoring is running.</p>
+                    </div>
+                `;
+            } else {
+                renderTweets(data.tweets);
+            }
+        })
+        .catch(error => {
+            console.error('Error loading tweets:', error);
+            document.getElementById('tweetFeed').innerHTML = `
+                <div class="text-center py-5">
+                    <i class="bi bi-exclamation-triangle text-warning" style="font-size: 3rem;"></i>
+                    <p class="mt-3 text-muted">Error loading tweets. Please try again.</p>
+                </div>
+            `;
+        });
+}
+
+function renderTweets(tweets) {
+    const feedContainer = document.getElementById('tweetFeed');
+    const template = document.getElementById('tweetTemplate');
+    
+    feedContainer.innerHTML = '';
+    
+    tweets.forEach(tweet => {
+        const tweetElement = template.cloneNode(true);
+        tweetElement.style.display = 'block';
+        tweetElement.id = `tweet-${tweet.id}`;
+        
+        // Fill in tweet data
+        tweetElement.querySelector('.tweet-display-name').textContent = tweet.display_name || tweet.username;
+        tweetElement.querySelector('.tweet-username').textContent = `@${tweet.username}`;
+        tweetElement.querySelector('.tweet-content').innerHTML = tweet.content; // Use innerHTML to preserve formatting
+        tweetElement.querySelector('.tweet-timestamp').textContent = formatTimestamp(tweet.created_at);
+        tweetElement.querySelector('.tweet-likes').textContent = tweet.likes_count || 0;
+        tweetElement.querySelector('.tweet-retweets').textContent = tweet.retweets_count || 0;
+        tweetElement.querySelector('.tweet-replies').textContent = tweet.replies_count || 0;
+        
+        // Show media if available
+        if (tweet.media && tweet.media.length > 0) {
+            const mediaContainer = tweetElement.querySelector('.tweet-media');
+            mediaContainer.style.display = 'block';
+            renderTweetMedia(mediaContainer, tweet.media);
+        }
+        
+        // Show AI analysis if available
+        if (tweet.ai_analysis) {
+            const aiAnalysis = tweetElement.querySelector('.tweet-ai-analysis');
+            aiAnalysis.style.display = 'block';
+            aiAnalysis.querySelector('div').innerHTML = tweet.ai_analysis;
+        }
+        
+        // Add status indicators
+        const statusContainer = tweetElement.querySelector('.tweet-status-indicators');
+        if (tweet.ai_processed) {
+            statusContainer.innerHTML += '<span class="badge bg-info ms-1">🤖 AI</span>';
+        }
+        if (tweet.has_media) {
+            statusContainer.innerHTML += '<span class="badge bg-secondary ms-1">📷 Media</span>';
+        }
+        if (tweet.telegram_sent) {
+            statusContainer.innerHTML += '<span class="badge bg-success ms-1">📱 Sent</span>';
+        }
+        
+        feedContainer.appendChild(tweetElement);
+    });
+}
+
+function renderTweetMedia(container, media) {
+    container.innerHTML = '';
+    
+    media.forEach(item => {
+        if (item.type === 'photo') {
+            const img = document.createElement('img');
+            img.src = item.url;
+            img.className = 'img-fluid rounded mb-2 me-2';
+            img.style.maxHeight = '300px';
+            img.onclick = () => window.open(item.url, '_blank');
+            container.appendChild(img);
+        } else if (item.type === 'video') {
+            const video = document.createElement('video');
+            video.src = item.url;
+            video.className = 'img-fluid rounded mb-2 me-2';
+            video.style.maxHeight = '300px';
+            video.controls = true;
+            container.appendChild(video);
+        }
+    });
+}
+
+function formatTimestamp(timestamp) {
+    const date = new Date(timestamp);
+    const now = new Date();
+    const diff = now - date;
+    
+    if (diff < 60000) return 'Just now';
+    if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
+    if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
+    return date.toLocaleDateString();
+}
+</script>
+{% endblock %} 
