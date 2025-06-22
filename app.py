@@ -842,9 +842,16 @@ def add_monitored_user():
         if not username:
             return jsonify({'error': 'Invalid username'}), 400
         
-        # Add user to database
+        # Add user to database AND scheduler
+        success = False
         if database:
-            success = database.add_monitored_user(username)
+            if scheduler:
+                # Use scheduler's add_user method which updates both database and in-memory list
+                success = scheduler.add_user(username)
+            else:
+                # Fallback to database only if scheduler not available
+                success = database.add_monitored_user(username)
+            
             if success:
                 return jsonify({
                     'success': True,
@@ -870,9 +877,16 @@ def remove_monitored_user():
         
         username = data['username'].strip()
         
-        # Remove user from database
+        # Remove user from database AND scheduler
+        success = False
         if database:
-            success = database.remove_monitored_user(username)
+            if scheduler:
+                # Use scheduler's remove_user method which updates both database and in-memory list
+                success = scheduler.remove_user(username)
+            else:
+                # Fallback to database only if scheduler not available
+                success = database.remove_monitored_user(username)
+            
             if success:
                 return jsonify({
                     'success': True,
