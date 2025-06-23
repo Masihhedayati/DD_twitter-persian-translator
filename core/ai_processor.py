@@ -75,6 +75,29 @@ class AIProcessor:
                 'error_message': str(e)
             }
     
+    def process_tweet_async(self, tweet_data: Dict[str, Any], 
+                          template_name: str = "persian_translator") -> Dict[str, Any]:
+        """Async wrapper for processing a single tweet - used by background worker"""
+        try:
+            result = self.process_single_tweet(tweet_data, template_name)
+            
+            # Transform the result format for background worker compatibility
+            if result.get('status') == 'completed':
+                ai_result_data = result.get('ai_result', {})
+                analysis_text = ai_result_data.get('raw_response', '') if isinstance(ai_result_data, dict) else str(ai_result_data)
+                
+                return {
+                    'analysis': analysis_text,
+                    'sentiment_score': None,  # Could extract from analysis if needed
+                    'keywords': []  # Could extract from analysis if needed
+                }
+            else:
+                return None
+                
+        except Exception as e:
+            self.logger.error(f"Error in async tweet processing: {e}")
+            return None
+    
     def store_ai_result(self, ai_result: Dict[str, Any]) -> bool:
         """Store AI analysis result in database"""
         try:

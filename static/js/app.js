@@ -80,12 +80,18 @@ function setupEventListeners() {
                 const updateEvent = JSON.parse(e.newValue);
                 if (updateEvent.type === 'monitored_users_changed') {
                     console.log('Detected user list change from another tab, updating dashboard...');
-                    loadMonitoredUsers();
+                    handleMonitoredUsersChange();
                 }
             } catch (error) {
                 console.error('Error parsing dashboard update event:', error);
             }
         }
+    });
+    
+    // Listen for same-tab updates when users are added/removed
+    window.addEventListener('monitoredUsersChanged', function(e) {
+        console.log('Detected user list change in same tab, updating dashboard...');
+        handleMonitoredUsersChange();
     });
 }
 
@@ -282,14 +288,16 @@ function updateTweetFeed(data, resetFeed = true) {
 
 // Get appropriate no tweets message based on current filters
 function getNoTweetsMessage() {
-    if (searchQuery) {
+    if (!currentMonitoredUsers || currentMonitoredUsers.length === 0) {
+        return 'No users are currently being monitored. Go to Settings to add Twitter accounts to monitor.';
+    } else if (searchQuery) {
         return `No tweets found for "${searchQuery}"`;
     } else if (currentFilter !== 'all') {
         return `No ${currentFilter} tweets found`;
     } else if (selectedUsername) {
         return `No tweets found for @${selectedUsername}`;
     } else {
-        return 'Make sure your monitoring is running';
+        return 'Make sure your monitoring is running and check back soon for new tweets.';
     }
 }
 
@@ -419,14 +427,25 @@ function renderMediaItem(media) {
 function renderAIAnalysis(aiResult) {
     if (!aiResult) return '';
     
+    // Detect if the text contains Persian/Arabic characters for RTL support
+    const isPersian = containsPersianText(aiResult);
+    const rtlClass = isPersian ? ' style="direction: rtl; text-align: right;"' : '';
+    
     return `
         <div class="tweet-ai-analysis mb-3">
             <div class="alert alert-info">
                 <i class="bi bi-robot"></i> <strong>AI Analysis:</strong>
-                <p class="mb-0 mt-1">${escapeHtml(aiResult)}</p>
+                <p class="mb-0 mt-1"${rtlClass}>${escapeHtml(aiResult)}</p>
             </div>
         </div>
     `;
+}
+
+// Helper function to detect Persian/Arabic text
+function containsPersianText(text) {
+    // Persian/Arabic Unicode ranges
+    const persianRegex = /[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/;
+    return persianRegex.test(text);
 }
 
 // Render status indicators
@@ -450,8 +469,10 @@ function renderStatusIndicators(tweet) {
 
 // Filter tweets to only include those from currently monitored users
 function filterTweetsByMonitoredUsers(tweets) {
+    // If no monitored users are loaded yet, show empty state instead of all tweets
     if (!currentMonitoredUsers || currentMonitoredUsers.length === 0) {
-        return tweets; // No filtering if no monitored users loaded yet
+        console.log('No monitored users loaded - filtering out all tweets');
+        return []; // Return empty array instead of all tweets
     }
     
     const monitoredUsernames = currentMonitoredUsers.map(u => u.username);
@@ -461,6 +482,7 @@ function filterTweetsByMonitoredUsers(tweets) {
     if (tweets.length !== filteredTweets.length) {
         console.log(`Filtered out ${tweets.length - filteredTweets.length} tweets from non-monitored users`);
         console.log(`Monitored users: ${monitoredUsernames.join(', ')}`);
+        console.log(`Remaining tweets: ${filteredTweets.length}`);
     }
     
     return filteredTweets;
@@ -513,10 +535,24 @@ function formatTimeAgo(date) {
     const seconds = Math.floor((now - date) / 1000);
     
     if (seconds < 60) return 'Just now';
-    if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
-    if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
-    if (seconds < 604800) return `${Math.floor(seconds / 86400)}d ago`;
     
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return `${minutes}m ago`;
+    
+    const hours = Math.floor(seconds / 3600);
+    if (hours < 24) {
+        // Show hours and remaining minutes for better granularity within 24 hours
+        const remainingMinutes = minutes % 60;
+        if (remainingMinutes > 0 && hours < 12) {
+            return `${hours}h ${remainingMinutes}m ago`;
+        }
+        return `${hours}h ago`;
+    }
+    
+    const days = Math.floor(seconds / 86400);
+    if (days < 7) return `${days}d ago`;
+    
+    // For older tweets, show actual date
     return date.toLocaleDateString();
 }
 
@@ -641,7 +677,7 @@ function startAutoRefresh() {
                 // Update stats
                 fetchStatistics();
             }
-        }, 30000);
+        }, 120000); // Increased to 2 minutes to reduce API calls
     }
 }
 
@@ -807,6 +843,26 @@ function updateUsernameFilter(users) {
     }
 }
 
+// Handle monitored users change event
+async function handleMonitoredUsersChange() {
+    try {
+        console.log('Handling monitored users change...');
+        
+        // Reload monitored users first
+        await loadMonitoredUsers();
+        
+        // Force refresh tweets to reflect new user list
+        await loadTweets(true); // Reset feed
+        
+        // Update stats
+        await fetchStatistics();
+        
+        console.log('Dashboard updated after monitored users change');
+    } catch (error) {
+        console.error('Error handling monitored users change:', error);
+    }
+}
+
 // Export functions for use in other scripts
 window.TwitterMonitor = {
     loadTweets,
@@ -817,5 +873,6 @@ window.TwitterMonitor = {
     handleUsernameFilter,
     clearSearch,
     clearUsernameFilter,
-    clearFilter
+    clearFilter,
+    handleMonitoredUsersChange
 }; 

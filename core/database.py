@@ -606,18 +606,22 @@ class Database:
                     # If setting exists (even if empty), parse it
                     if result[0]:
                         users = [user.strip() for user in result[0].split(',') if user.strip()]
+                        logger.debug(f"Retrieved monitored users from database: {users}")
                         return users
                     else:
-                        # Empty string means no users to monitor
+                        # Empty string means explicitly set to no users
+                        logger.debug("No monitored users - explicitly set to empty")
                         return []
                 else:
-                    # Return default users only if setting doesn't exist at all (first run)
-                    return ['elonmusk', 'naval', 'paulg']
+                    # Setting doesn't exist - initialize with empty list for first run
+                    logger.info("Monitored users setting not found - initializing with empty list")
+                    self.set_monitored_users([])
+                    return []
                     
         except Exception as e:
             logger.error(f"Error getting monitored users: {e}")
-            # Only return defaults on error, not when explicitly set to empty
-            return ['elonmusk', 'naval', 'paulg']
+            # On database error, return empty list to be safe
+            return []
     
     def set_monitored_users(self, users: List[str]) -> bool:
         """Store list of monitored users in database"""
@@ -779,6 +783,153 @@ class Database:
         except Exception as e:
             logger.error(f"Error normalizing timestamp: {e}")
             return int(time.time())
+
+    def get_tweets_without_ai_analysis(self, limit: int = 50) -> List[Dict]:
+        """
+        Get tweets that don't have AI analysis yet
+        
+        Args:
+            limit: Maximum number of tweets to return
+            
+        Returns:
+            List of tweet dictionaries without AI analysis
+        """
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    SELECT id, username, content, created_at, detected_at
+                    FROM tweets 
+                    WHERE (ai_analysis IS NULL OR ai_analysis = '') 
+                    AND ai_processed = 0
+                    ORDER BY detected_at DESC
+                    LIMIT ?
+                ''', (limit,))
+                
+                columns = [desc[0] for desc in cursor.description]
+                tweets = []
+                
+                for row in cursor.fetchall():
+                    tweet_dict = dict(zip(columns, row))
+                    tweets.append(tweet_dict)
+                
+                return tweets
+                
+        except Exception as e:
+            logger.error(f"Error getting tweets without AI analysis: {e}")
+            return []
+
+    def get_tweets_with_missing_media(self, limit: int = 50) -> List[Dict]:
+        """
+        Get tweets that have media in database but missing local files
+        
+        Args:
+            limit: Maximum number of tweets to return
+            
+        Returns:
+            List of tweet dictionaries with missing media
+        """
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    SELECT DISTINCT t.id, t.username, t.content, t.created_at, t.detected_at
+                    FROM tweets t
+                    INNER JOIN media m ON t.id = m.tweet_id
+                    WHERE (m.local_path IS NULL OR m.local_path = '' OR m.download_status != 'completed')
+                    ORDER BY t.detected_at DESC
+                    LIMIT ?
+                ''', (limit,))
+                
+                columns = [desc[0] for desc in cursor.description]
+                tweets = []
+                
+                for row in cursor.fetchall():
+                    tweet_dict = dict(zip(columns, row))
+                    tweets.append(tweet_dict)
+                
+                return tweets
+                
+        except Exception as e:
+            logger.error(f"Error getting tweets with missing media: {e}")
+            return []
+
+    def update_tweet_ai_analysis(self, tweet_id: str, ai_analysis: str, sentiment_score: float = None, keywords: List[str] = None) -> bool:
+        """
+        Update tweet with AI analysis results
+        
+        Args:
+            tweet_id: Tweet ID
+            ai_analysis: AI analysis text
+            sentiment_score: Sentiment score (optional)
+            keywords: List of keywords (optional)
+            
+        Returns:
+            True if update successful
+        """
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                
+                keywords_str = ','.join(keywords) if keywords else None
+                
+                cursor.execute('''
+                    UPDATE tweets 
+                    SET ai_analysis = ?, 
+                        ai_processed = 1,
+                        sentiment_score = ?,
+                        keywords = ?,
+                        ai_processed_at = ?
+                    WHERE id = ?
+                ''', (ai_analysis, sentiment_score, keywords_str, datetime.now(), tweet_id))
+                
+                conn.commit()
+                
+                if cursor.rowcount > 0:
+                    logger.debug(f"Updated AI analysis for tweet {tweet_id}")
+                    return True
+                else:
+                    logger.warning(f"No tweet found with ID {tweet_id} for AI analysis update")
+                    return False
+                
+        except Exception as e:
+            logger.error(f"Error updating AI analysis for tweet {tweet_id}: {e}")
+            return False
+
+    def update_media_local_path(self, media_id: int, local_path: str) -> bool:
+        """
+        Update media record with local file path
+        
+        Args:
+            media_id: Media record ID
+            local_path: Path to downloaded file
+            
+        Returns:
+            True if update successful
+        """
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    UPDATE media 
+                    SET local_path = ?, 
+                        download_status = 'completed',
+                        downloaded_at = ?
+                    WHERE id = ?
+                ''', (local_path, datetime.now(), media_id))
+                
+                conn.commit()
+                
+                if cursor.rowcount > 0:
+                    logger.debug(f"Updated local path for media {media_id}")
+                    return True
+                else:
+                    logger.warning(f"No media found with ID {media_id}")
+                    return False
+                
+        except Exception as e:
+            logger.error(f"Error updating media local path for media {media_id}: {e}")
+            return False
 
 # Initialize database function for external use
 def init_db(db_path: str = "./tweets.db"):

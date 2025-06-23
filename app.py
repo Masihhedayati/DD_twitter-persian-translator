@@ -14,7 +14,10 @@ from core.database import Database
 from core.polling_scheduler import PollingScheduler
 from core.error_handler import get_system_health, log_error
 from core.webhook_handler import TwitterWebhookHandler
+from core.rss_webhook_handler import RSSWebhookHandler
+from core.twitter_client import TwitterClient
 from core.ai_processor import AIProcessor
+from core.background_worker import BackgroundWorker
 from config import Config
 from core.openai_client import OpenAIClient
 
@@ -39,11 +42,14 @@ app.config.from_object('config.Config')
 database = None
 scheduler = None
 webhook_handler = None
+rss_webhook_handler = None
+twitter_client = None
 ai_processor = None
+background_worker = None
 
 def initialize_components():
     """Initialize database, scheduler, and webhook components"""
-    global database, scheduler, webhook_handler, ai_processor
+    global database, scheduler, webhook_handler, rss_webhook_handler, twitter_client, ai_processor, background_worker
     
     try:
         # Initialize database
@@ -81,9 +87,26 @@ def initialize_components():
         ai_processor = AIProcessor(database, openai_client)
         logger.info("AI processor initialized successfully")
         
+        # Initialize background worker for missing translations and media
+        background_worker = BackgroundWorker(
+            database=database,
+            openai_client=openai_client,
+            media_storage_path=config.get('MEDIA_STORAGE_PATH', './media')
+        )
+        background_worker.start()
+        logger.info("Background worker started successfully")
+        
+        # Initialize Twitter client
+        twitter_client = TwitterClient(config.get('TWITTER_API_KEY'))
+        logger.info("Twitter client initialized successfully")
+        
         # Initialize webhook handler
         webhook_handler = TwitterWebhookHandler(database, ai_processor, config)
         logger.info("Webhook handler initialized successfully")
+        
+        # Initialize RSS webhook handler
+        rss_webhook_handler = RSSWebhookHandler(database, twitter_client, ai_processor, config)
+        logger.info("RSS webhook handler initialized successfully")
         
         # Initialize scheduler based on mode
         webhook_only_mode = config.get('WEBHOOK_ONLY_MODE', False)
@@ -112,7 +135,7 @@ def initialize_components():
 
 def cleanup_components():
     """Cleanup components on app shutdown"""
-    global scheduler
+    global scheduler, background_worker
     
     try:
         if scheduler:
@@ -120,6 +143,13 @@ def cleanup_components():
             logger.info("Scheduler stopped successfully")
     except Exception as e:
         logger.error(f"Error stopping scheduler: {e}")
+    
+    try:
+        if background_worker:
+            background_worker.stop()
+            logger.info("Background worker stopped successfully")
+    except Exception as e:
+        logger.error(f"Error stopping background worker: {e}")
 
 # Register cleanup function
 atexit.register(cleanup_components)
@@ -235,6 +265,100 @@ def test_webhook():
         logger.error(f"Error processing test webhook: {e}")
         return jsonify({'error': str(e)}), 500
 
+@app.route('/webhook/rss', methods=['POST'])
+def rss_webhook_event():
+    """Handle incoming RSS.app webhook events"""
+    if not rss_webhook_handler:
+        return jsonify({'error': 'RSS webhook handler not initialized'}), 500
+    
+    try:
+        # Get event data
+        event_data = request.get_json()
+        if not event_data:
+            return jsonify({'error': 'No JSON data provided'}), 400
+        
+        # Process the RSS webhook event (RSS.app doesn't provide signatures)
+        result = rss_webhook_handler.process_rss_webhook(event_data)
+        
+        logger.info(f"RSS webhook event processed: {result}")
+        return jsonify(result)
+    
+    except Exception as e:
+        logger.error(f"Error processing RSS webhook event: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/webhook/rss/test', methods=['POST', 'GET'])
+def test_rss_webhook():
+    """Test endpoint for RSS webhook functionality"""
+    if not rss_webhook_handler:
+        return jsonify({'error': 'RSS webhook handler not initialized'}), 500
+    
+    try:
+        # Use the handler's test method
+        result = rss_webhook_handler.handle_test_webhook()
+        
+        if result['status'] == 'success':
+            logger.info(f"Test RSS webhook processed: {result}")
+            return jsonify(result)
+        else:
+            logger.error(f"Test RSS webhook failed: {result}")
+            return jsonify(result), 400
+            
+    except Exception as e:
+        logger.error(f"Error in test RSS webhook: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/rss/stats')
+def get_rss_webhook_stats():
+    """Get RSS webhook statistics"""
+    if not rss_webhook_handler:
+        return jsonify({'error': 'RSS webhook handler not initialized'}), 500
+    
+    try:
+        stats = rss_webhook_handler.get_webhook_stats()
+        return jsonify({
+            'status': 'success',
+            'stats': stats,
+            'timestamp': datetime.now().isoformat()
+        })
+    except Exception as e:
+        logger.error(f"Error getting RSS webhook stats: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/version')
+def get_version_info():
+    """Get current version and development information"""
+    try:
+        import git
+        from datetime import datetime
+        
+        repo = git.Repo('.')
+        current_branch = repo.active_branch.name
+        current_commit = repo.head.commit.hexsha[:8]
+        commit_date = datetime.fromtimestamp(repo.head.commit.committed_date)
+        
+        # Check if there are uncommitted changes
+        is_dirty = repo.is_dirty()
+        untracked_files = len(repo.untracked_files)
+        
+        return jsonify({
+            'version': '1.0.0-dev',
+            'branch': current_branch,
+            'commit': current_commit,
+            'commit_date': commit_date.isoformat(),
+            'is_dirty': is_dirty,
+            'untracked_files': untracked_files,
+            'development_mode': app.config.get('DEBUG', False),
+            'webhook_url': os.environ.get('WEBHOOK_URL'),
+            'timestamp': datetime.now().isoformat()
+        })
+    except Exception as e:
+        return jsonify({
+            'version': '1.0.0-dev',
+            'error': str(e),
+            'timestamp': datetime.now().isoformat()
+        })
+
 @app.route('/api/errors')
 def get_error_statistics():
     """API endpoint to get comprehensive error statistics"""
@@ -339,8 +463,18 @@ def get_filtered_tweets(limit=50, offset=0, username=None, search_query=None, fi
             query = "SELECT * FROM tweets WHERE 1=1"
             params = []
             
-            # Username filter
-            if username:
+            # ALWAYS filter by monitored users (unless specific username is requested)
+            if not username:
+                monitored_users = database.get_monitored_users()
+                if monitored_users:
+                    placeholders = ','.join(['?' for _ in monitored_users])
+                    query += f" AND username IN ({placeholders})"
+                    params.extend(monitored_users)
+                else:
+                    # No monitored users - return empty result
+                    return []
+            else:
+                # Specific username filter
                 query += " AND username = ?"
                 params.append(username)
             
@@ -352,9 +486,9 @@ def get_filtered_tweets(limit=50, offset=0, username=None, search_query=None, fi
             
             # Filter type
             if filter_type == 'images':
-                query += " AND id IN (SELECT DISTINCT tweet_id FROM media WHERE media_type = 'image')"
+                query += " AND id IN (SELECT DISTINCT tweet_id FROM media WHERE media_type IN ('photo', 'image'))"
             elif filter_type == 'videos':
-                query += " AND id IN (SELECT DISTINCT tweet_id FROM media WHERE media_type IN ('video', 'gif'))"
+                query += " AND id IN (SELECT DISTINCT tweet_id FROM media WHERE media_type IN ('video', 'gif', 'animated_gif'))"
             elif filter_type == 'ai':
                 query += " AND ai_processed = 1"
             
@@ -363,12 +497,25 @@ def get_filtered_tweets(limit=50, offset=0, username=None, search_query=None, fi
                 query += " AND detected_at > ?"
                 params.append(since)
             
-            # Order by detected_at for chronological ordering (newest first)
-            query += " ORDER BY detected_at DESC LIMIT ? OFFSET ?"
+            # Order by created_at for chronological ordering (newest first)
+            # Convert Twitter date format to sortable format for proper chronological ordering
+            query += " ORDER BY datetime(substr(created_at, 27, 4) || '-' || " \
+                     "CASE substr(created_at, 5, 3) " \
+                     "WHEN 'Jan' THEN '01' WHEN 'Feb' THEN '02' WHEN 'Mar' THEN '03' WHEN 'Apr' THEN '04' " \
+                     "WHEN 'May' THEN '05' WHEN 'Jun' THEN '06' WHEN 'Jul' THEN '07' WHEN 'Aug' THEN '08' " \
+                     "WHEN 'Sep' THEN '09' WHEN 'Oct' THEN '10' WHEN 'Nov' THEN '11' WHEN 'Dec' THEN '12' " \
+                     "END || '-' || " \
+                     "printf('%02d', CAST(substr(created_at, 9, 2) AS INTEGER)) || ' ' || " \
+                     "substr(created_at, 12, 8)) DESC, detected_at DESC LIMIT ? OFFSET ?"
             params.extend([limit, offset])
             
             cursor.execute(query, params)
             tweets = [dict(row) for row in cursor.fetchall()]
+            
+            logger.debug(f"Filtered tweets query returned {len(tweets)} results")
+            if not username:
+                logger.debug(f"Filtering by monitored users: {database.get_monitored_users()}")
+            
             return tweets
             
     except Exception as e:
@@ -550,7 +697,7 @@ def get_settings():
         from config import Config
         
         settings = {
-            'monitored_users': Config.MONITORED_USERS,
+            'monitored_users': database.get_monitored_users() if database else [],
             'check_interval': int(database.get_setting('check_interval', '60')) if database else 60,
             'monitoring_mode': database.get_setting('monitoring_mode', 'hybrid') if database else 'hybrid',
             'historical_hours': int(database.get_setting('historical_hours', '2')) if database else 2,
@@ -781,7 +928,8 @@ def get_monitored_users():
         if database:
             users = database.get_monitored_users()
         else:
-            users = app.config.get('MONITORED_USERS', ['elonmusk', 'naval', 'paulg'])
+            # Fallback to empty list if no database
+            users = []
         
         # Get stats for each user
         user_stats = []
@@ -947,6 +1095,31 @@ def test_notification():
         logger.error(f"Error sending test notification: {e}")
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/debug/users')
+def debug_monitored_users():
+    """Debug endpoint to check monitored users directly"""
+    try:
+        result = {}
+        if database:
+            result['database_get_monitored_users'] = database.get_monitored_users()
+            
+            # Also check the raw database
+            import sqlite3
+            with sqlite3.connect(database.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute('SELECT key, value FROM settings WHERE key = ?', ('monitored_users',))
+                raw_result = cursor.fetchone()
+                result['raw_database_query'] = {
+                    'exists': raw_result is not None,
+                    'value': raw_result[1] if raw_result else None
+                }
+        else:
+            result['error'] = 'No database connection'
+            
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/api/cache/clear', methods=['POST'])
 def clear_cache():
     """Clear application cache"""
@@ -1008,6 +1181,64 @@ def serve_media(filename):
     except Exception as e:
         logger.error(f"Error serving media file {filename}: {e}")
         return "Error serving file", 500
+
+@app.route('/api/background-worker/stats')
+def get_background_worker_stats():
+    """Get background worker statistics"""
+    if not background_worker:
+        return jsonify({'error': 'Background worker not initialized'}), 500
+    
+    try:
+        stats = background_worker.get_stats()
+        return jsonify(stats)
+    except Exception as e:
+        logger.error(f"Error getting background worker stats: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/background-worker/process/<tweet_id>', methods=['POST'])
+def force_process_tweet(tweet_id):
+    """Force immediate processing of a specific tweet"""
+    if not background_worker:
+        return jsonify({'error': 'Background worker not initialized'}), 500
+    
+    try:
+        result = background_worker.force_process_tweet(tweet_id)
+        return jsonify(result)
+    except Exception as e:
+        logger.error(f"Error force processing tweet {tweet_id}: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/database/completion-stats')
+def get_database_completion_stats():
+    """Get statistics about database completeness (AI analysis and media downloads)"""
+    try:
+        # Get tweets missing AI analysis
+        missing_ai = database.get_tweets_without_ai_analysis(limit=1000)
+        missing_ai_count = len(missing_ai)
+        
+        # Get tweets with missing media
+        missing_media = database.get_tweets_with_missing_media(limit=1000)
+        missing_media_count = len(missing_media)
+        
+        # Get total tweet count
+        total_tweets = database.get_total_tweets_count()
+        
+        # Calculate completion percentages
+        ai_completion = ((total_tweets - missing_ai_count) / total_tweets * 100) if total_tweets > 0 else 100
+        media_completion = ((total_tweets - missing_media_count) / total_tweets * 100) if total_tweets > 0 else 100
+        
+        return jsonify({
+            'total_tweets': total_tweets,
+            'missing_ai_analysis': missing_ai_count,
+            'missing_media_downloads': missing_media_count,
+            'ai_completion_percentage': round(ai_completion, 1),
+            'media_completion_percentage': round(media_completion, 1),
+            'overall_completion': round((ai_completion + media_completion) / 2, 1)
+        })
+        
+    except Exception as e:
+        logger.error(f"Error getting database completion stats: {e}")
+        return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
     # Ensure required directories exist

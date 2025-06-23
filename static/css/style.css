@@ -170,6 +170,20 @@ body {
     border-color: #ffeaa7;
 }
 
+/* RTL Support for Persian/Arabic Text */
+.rtl-text {
+    direction: rtl;
+    text-align: right;
+    font-family: 'Segoe UI', Tahoma, Arial, sans-serif;
+    line-height: 1.6;
+}
+
+.ai-analysis-content[style*="direction: rtl"] {
+    font-family: 'Segoe UI', Tahoma, Arial, sans-serif;
+    line-height: 1.8;
+    padding: 0.5rem 0;
+}
+
 /* Status Indicators */
 .status-indicator {
     display: inline-block;

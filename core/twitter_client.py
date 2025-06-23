@@ -371,8 +371,24 @@ class TwitterClient:
                                         best_variant = variant
                             
                             if best_variant:
+                                # Use the video URL as the main URL for downloading
+                                media_item['url'] = best_variant['url']
                                 media_item['video_url'] = best_variant['url']
                                 media_item['bitrate'] = best_variant.get('bitrate')
+                                media_item['thumbnail_url'] = media.get('media_url_https', '')
+                    
+                    # For animated GIFs, treat as video
+                    elif media.get('type') == 'animated_gif' and 'video_info' in media:
+                        video_info = media['video_info']
+                        media_item['duration'] = video_info.get('duration_millis')
+                        
+                        # For GIFs, get the mp4 variant (Twitter converts GIFs to mp4)
+                        if 'variants' in video_info:
+                            for variant in video_info['variants']:
+                                if variant.get('content_type') == 'video/mp4':
+                                    media_item['url'] = variant['url']
+                                    media_item['video_url'] = variant['url']
+                                    break
                     
                     items.append(media_item)
             

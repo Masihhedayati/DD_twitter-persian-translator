@@ -13,9 +13,15 @@ const loadingStates = new Map();
 
 // Set button loading state
 function setButtonLoading(button, isLoading, text = null) {
-    if (!button) return;
+    if (!button) {
+        console.warn('setButtonLoading: button is null or undefined');
+        return;
+    }
     
-    const buttonId = button.id || button.textContent;
+    // Create a unique identifier for the button
+    const buttonId = button.id || button.getAttribute('data-button-id') || 
+                    (button.onclick ? button.onclick.toString() : '') || 
+                    button.outerHTML;
     
     if (isLoading) {
         // Store original state
@@ -27,6 +33,7 @@ function setButtonLoading(button, isLoading, text = null) {
         // Set loading state
         button.disabled = true;
         button.innerHTML = `<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>${text || 'Loading...'}`;
+        console.log('Button set to loading state:', buttonId);
     } else {
         // Restore original state
         const originalState = loadingStates.get(buttonId);
@@ -34,6 +41,11 @@ function setButtonLoading(button, isLoading, text = null) {
             button.innerHTML = originalState.html;
             button.disabled = originalState.disabled;
             loadingStates.delete(buttonId);
+            console.log('Button restored from loading state:', buttonId);
+        } else {
+            console.warn('No original state found for button:', buttonId);
+            // Fallback: just enable the button
+            button.disabled = false;
         }
     }
 }
@@ -922,15 +934,24 @@ function displayMonitoredUsers(users) {
 
 // Add new user
 async function addNewUser(event) {
+    console.log('addNewUser called with event:', event);
+    
     const button = event ? event.target.closest('button') : null;
+    console.log('Button found:', button);
+    
     if (button) {
         setButtonLoading(button, true, 'Adding...');
     }
     
     const input = document.getElementById('newUserInput');
-    if (!input) return;
+    if (!input) {
+        console.error('newUserInput element not found');
+        return;
+    }
     
     const userInput = input.value.trim();
+    console.log('User input:', userInput);
+    
     if (!userInput) {
         showStatus('Please enter a Twitter username or URL', 'warning');
         if (button) {
@@ -941,6 +962,7 @@ async function addNewUser(event) {
     
     try {
         showStatus('Adding user...', 'info');
+        console.log('Making API request to add user:', userInput);
         
         const response = await fetch('/api/users/add', {
             method: 'POST',
@@ -952,7 +974,9 @@ async function addNewUser(event) {
             })
         });
         
+        console.log('API response status:', response.status);
         const result = await response.json();
+        console.log('API response result:', result);
         
         if (response.ok && result.success) {
             showStatus(result.message, 'success');
@@ -969,6 +993,7 @@ async function addNewUser(event) {
         console.error('Error adding user:', error);
         showStatus('Failed to add user: ' + error.message, 'error', 10000);
     } finally {
+        console.log('addNewUser finally block - restoring button');
         if (button) {
             setButtonLoading(button, false);
         }
@@ -1087,10 +1112,15 @@ function notifyDashboardUpdate() {
     
     localStorage.setItem('dashboard_update', JSON.stringify(updateEvent));
     
-    // Remove the item immediately to trigger storage event
+    // Remove the item after a longer delay to ensure all tabs can read it
     setTimeout(() => {
         localStorage.removeItem('dashboard_update');
-    }, 100);
+    }, 500);
+    
+    // Also dispatch a custom event for same-tab communication
+    window.dispatchEvent(new CustomEvent('monitoredUsersChanged', {
+        detail: updateEvent
+    }));
 }
 
 // Toggle between basic and advanced mode

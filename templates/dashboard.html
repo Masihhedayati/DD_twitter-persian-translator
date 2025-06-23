@@ -202,7 +202,7 @@
             <div class="tweet-ai-analysis" style="display: none;">
                 <div class="alert alert-info">
                     <i class="bi bi-robot"></i> <strong>AI Analysis:</strong>
-                    <div class="mt-1">AI analysis content...</div>
+                    <div class="mt-1 ai-analysis-content">AI analysis content...</div>
                 </div>
             </div>
             
@@ -303,7 +303,14 @@ function renderTweets(tweets) {
         if (tweet.ai_analysis) {
             const aiAnalysis = tweetElement.querySelector('.tweet-ai-analysis');
             aiAnalysis.style.display = 'block';
-            aiAnalysis.querySelector('div').innerHTML = tweet.ai_analysis;
+            const contentDiv = aiAnalysis.querySelector('.ai-analysis-content');
+            contentDiv.innerHTML = tweet.ai_analysis;
+            
+            // Apply RTL styling for Persian text
+            if (containsPersianText(tweet.ai_analysis)) {
+                contentDiv.style.direction = 'rtl';
+                contentDiv.style.textAlign = 'right';
+            }
         }
         
         // Add status indicators
@@ -350,9 +357,31 @@ function formatTimestamp(timestamp) {
     const diff = now - date;
     
     if (diff < 60000) return 'Just now';
-    if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
-    if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
+    
+    const minutes = Math.floor(diff / 60000);
+    if (minutes < 60) return `${minutes}m ago`;
+    
+    const hours = Math.floor(diff / 3600000);
+    if (hours < 24) {
+        // Show hours and remaining minutes for better granularity within 24 hours
+        const remainingMinutes = minutes % 60;
+        if (remainingMinutes > 0 && hours < 12) {
+            return `${hours}h ${remainingMinutes}m ago`;
+        }
+        return `${hours}h ago`;
+    }
+    
+    const days = Math.floor(diff / 86400000);
+    if (days < 7) return `${days}d ago`;
+    
     return date.toLocaleDateString();
+}
+
+// Helper function to detect Persian/Arabic text
+function containsPersianText(text) {
+    // Persian/Arabic Unicode ranges
+    const persianRegex = /[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/;
+    return persianRegex.test(text);
 }
 </script>
 {% endblock %} 

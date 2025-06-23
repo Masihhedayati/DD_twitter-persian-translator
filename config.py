@@ -41,8 +41,9 @@ class Config:
     NOTIFICATION_DELAY = int(os.environ.get('NOTIFICATION_DELAY', 10))
     
     # Monitoring Configuration
-    MONITORED_USERS = os.environ.get('MONITORED_USERS', 'elonmusk,naval,paulg').split(',')
-    CHECK_INTERVAL = int(os.environ.get('CHECK_INTERVAL', 60))  # seconds
+    # MONITORED_USERS is now managed dynamically through the database
+    # Environment variable is only used for initial setup if needed
+    MONITORED_USERS = os.environ.get("MONITORED_USERS", "").split(",") if os.environ.get("MONITORED_USERS") else []
     
     # Media Storage Configuration
     MEDIA_STORAGE_PATH = os.environ.get('MEDIA_STORAGE_PATH', './media')
