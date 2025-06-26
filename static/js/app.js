@@ -28,7 +28,7 @@ function initializeApp() {
     // Load initial data
     loadMonitoredUsers();
     loadTweets();
-    loadStats();
+    fetchStatistics(); // Fix: call the actual function
     
     // Start auto-refresh
     startAutoRefresh();
@@ -248,15 +248,16 @@ async function loadTweets(reset = false) {
 
 // Update tweet feed display
 function updateTweetFeed(data, resetFeed = true) {
+    console.log('DEBUG: updateTweetFeed called with data:', data, 'resetFeed:', resetFeed); // Debug line
     const feedContainer = document.getElementById('tweetFeed');
     if (!feedContainer) return;
     
-    if (data.count === 0 && resetFeed) {
+    if (!data || !data.tweets || data.tweets.length === 0) {
+        console.log('DEBUG: No tweets to display'); // Debug line
         feedContainer.innerHTML = `
-            <div class="text-center py-5">
-                <i class="bi bi-twitter text-muted" style="font-size: 3rem;"></i>
-                <h4 class="mt-3 text-muted">No tweets found</h4>
-                <p class="text-muted">
+            <div class="text-center py-4">
+                <i class="bi bi-chat-dots text-muted" style="font-size: 3rem;"></i>
+                <p class="text-muted mt-2">
                     ${getNoTweetsMessage()}
                 </p>
             </div>
@@ -264,9 +265,12 @@ function updateTweetFeed(data, resetFeed = true) {
         return;
     }
     
+    console.log('DEBUG: Processing tweets, count:', data.tweets.length); // Debug line
+    
     // Render tweets
     let tweetsHTML = '';
     data.tweets.forEach(tweet => {
+        console.log('DEBUG: About to render tweet:', tweet.id, 'has_media:', tweet.has_media); // Debug line
         tweetsHTML += renderTweet(tweet);
     });
     
@@ -327,8 +331,12 @@ function showNewTweetsNotification(count) {
 
 // Render a single tweet
 function renderTweet(tweet) {
-    const timeAgo = formatTimeAgo(new Date(tweet.created_at));
     const mediaHTML = renderMedia(tweet.media || []);
+    
+    const aiHTML = renderAIAnalysis(tweet.ai_analysis);
+    const createdAt = new Date(tweet.created_at).toLocaleDateString();
+    
+    const timeAgo = formatTimeAgo(new Date(tweet.created_at));
     const aiAnalysisHTML = renderAIAnalysis(tweet.ai_result);
     const statusIndicators = renderStatusIndicators(tweet);
     
@@ -381,24 +389,34 @@ function renderTweet(tweet) {
 function renderMedia(mediaItems) {
     if (!mediaItems || mediaItems.length === 0) return '';
     
+    console.log('DEBUG: Rendering media for items:', mediaItems); // Debug line
+    
     const gridClass = getMediaGridClass(mediaItems.length);
     let mediaHTML = `<div class="tweet-media mb-3"><div class="media-grid ${gridClass}">`;
     
     mediaItems.forEach(media => {
+        // Use media_type field from API, not type
+        const mediaType = media.media_type || media.type;
+        console.log('DEBUG: Processing media item:', media.url, mediaType); // Debug line
         mediaHTML += `
-            <div class="media-item" data-media-url="${media.url}" data-media-type="${media.type}">
+            <div class="media-item" data-media-url="${media.url}" data-media-type="${mediaType}">
                 ${renderMediaItem(media)}
             </div>
         `;
     });
     
     mediaHTML += '</div></div>';
+    console.log('DEBUG: Generated media HTML:', mediaHTML); // Debug line
     return mediaHTML;
 }
 
 // Render individual media item
 function renderMediaItem(media) {
-    switch (media.type) {
+    // Use media_type field from API, not type
+    const mediaType = media.media_type || media.type;
+    
+    switch (mediaType) {
+        case 'photo':
         case 'image':
             return `<img src="${media.url}" alt="Tweet image" loading="lazy">`;
         case 'video':
@@ -411,6 +429,7 @@ function renderMediaItem(media) {
                     <i class="bi bi-play-fill"></i>
                 </div>
             `;
+        case 'animated_gif':
         case 'gif':
             return `
                 <img src="${media.url}" alt="GIF" loading="lazy">

@@ -11,6 +11,9 @@ import mimetypes
 from PIL import Image
 import requests
 import json
+import sys
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from core.video_url_resolver import VideoUrlResolver
 
 
 class MediaExtractor:
@@ -126,7 +129,7 @@ class MediaExtractor:
     async def _download_single_media(self, tweet_id: str, media_info: Dict, 
                                    index: int, date_str: str) -> Dict:
         """
-        Download a single media file with retry logic
+        Download a single media file with video URL resolution support
         
         Args:
             tweet_id: Tweet ID
@@ -144,106 +147,89 @@ class MediaExtractor:
             return {
                 'status': 'failed',
                 'error_message': f'Invalid media type: {media_type}',
-                'media_type': media_type,
-                'original_url': media_url
+                'local_path': None
             }
         
-        if not media_url:
-            return {
-                'status': 'failed',
-                'error_message': 'No media URL provided',
-                'media_type': media_type
-            }
+        # 🎬 VIDEO URL RESOLUTION - Handle thumbnail URLs
+        if media_type in ['video', 'animated_gif'] and media_url:
+            try:
+                # Use VideoUrlResolver to get actual video URL if we have a thumbnail
+                async with VideoUrlResolver() as resolver:
+                    if resolver.is_thumbnail_url(media_url):
+                        self.logger.info(f"Thumbnail detected for tweet {tweet_id}, resolving to video URL...")
+                        
+                        # Try to resolve actual video URL from tweet ID
+                        best_url, variants = await resolver.resolve_video_url(tweet_id)
+                        
+                        if best_url:
+                            original_url = media_url
+                            media_url = best_url
+                            self.logger.info(f"✅ Resolved video URL: {original_url[:50]}... -> {best_url[:50]}...")
+                            self.logger.info(f"🎯 Video quality: {variants[0].quality if variants else 'unknown'}")
+                        else:
+                            self.logger.warning(f"❌ Could not resolve video URL for tweet {tweet_id}, keeping original")
+                    else:
+                        self.logger.debug(f"Media URL is not a thumbnail, proceeding with download")
+                        
+            except Exception as e:
+                self.logger.error(f"Video URL resolution failed for tweet {tweet_id}: {e}")
+                self.logger.info("Proceeding with original URL...")
         
-        # Generate filename and paths
+        # Generate filename
         filename = self._generate_filename(tweet_id, media_type, media_url, index)
         media_dir = self._get_media_directory_path(media_type, date_str)
         os.makedirs(media_dir, exist_ok=True)
-        local_path = os.path.join(media_dir, filename)
+        file_path = os.path.join(media_dir, filename)
         
-        # Attempt download with retries
+        # Download with retry logic
         for attempt in range(self.max_retries):
             try:
-                self.logger.debug(f"Download attempt {attempt + 1}/{self.max_retries} for {media_url}")
+                self.logger.debug(f"Downloading media (attempt {attempt + 1}/{self.max_retries}): {media_url}")
                 
-                async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=self.timeout)) as session:
+                # Add delay between retries
+                if attempt > 0:
+                    await asyncio.sleep(self.retry_delay * attempt)
+                
+                async with aiohttp.ClientSession(
+                    timeout=aiohttp.ClientTimeout(total=self.timeout),
+                    headers={'User-Agent': 'Mozilla/5.0 (compatible; MediaBot/1.0)'}
+                ) as session:
                     async with session.get(media_url) as response:
                         if response.status == 200:
-                            # Check file size
-                            content_length = response.headers.get('content-length')
-                            if content_length and int(content_length) > self.max_file_size:
+                            # Write file
+                            with open(file_path, 'wb') as f:
+                                async for chunk in response.content.iter_chunked(8192):
+                                    f.write(chunk)
+                            
+                            # Verify file was downloaded successfully
+                            if os.path.exists(file_path) and os.path.getsize(file_path) > 0:
                                 return {
-                                    'status': 'failed',
-                                    'error_message': f'File too large: {content_length} bytes',
-                                    'media_type': media_type,
-                                    'original_url': media_url
-                                }
-                            
-                            # Download file
-                            file_content = await response.read()
-                            
-                            # Save to disk
-                            async with aiofiles.open(local_path, 'wb') as f:
-                                await f.write(file_content)
-                            
-                            # Verify download integrity
-                            if not self._verify_download_integrity(local_path, len(file_content)):
-                                raise Exception("Download integrity check failed")
-                            
-                            # Success result
-                            return {
-                                'status': 'completed',
-                                'media_type': media_type,
-                                'original_url': media_url,
-                                'local_path': local_path,
-                                'file_size': len(file_content),
-                                'width': media_info.get('width'),
-                                'height': media_info.get('height'),
-                                'duration': media_info.get('duration'),
-                                'content_type': response.headers.get('content-type', ''),
-                                'downloaded_at': datetime.now().isoformat()
-                            }
-                        else:
-                            # HTTP error
-                            if response.status in [404, 403, 410]:
-                                # Permanent errors - don't retry
-                                return {
-                                    'status': 'failed',
-                                    'error_message': f'HTTP {response.status}: Media not available',
-                                    'media_type': media_type,
-                                    'original_url': media_url
+                                    'status': 'completed',
+                                    'local_path': file_path,
+                                    'error_message': None
                                 }
                             else:
-                                # Temporary error - retry
-                                raise aiohttp.ClientResponseError(
-                                    request_info=response.request_info,
-                                    history=response.history,
-                                    status=response.status
-                                )
-            
+                                raise Exception("Downloaded file is empty or doesn't exist")
+                        else:
+                            raise Exception(f"HTTP {response.status}: {response.reason}")
+                            
             except Exception as e:
-                self.logger.warning(f"Download attempt {attempt + 1} failed for {media_url}: {e}")
+                error_message = str(e)
+                self.logger.warning(f"Download attempt {attempt + 1} failed: {error_message}")
                 
-                if attempt < self.max_retries - 1:
-                    # Wait before retry with exponential backoff
-                    wait_time = self.retry_delay * (2 ** attempt)
-                    await asyncio.sleep(wait_time)
-                else:
+                if attempt == self.max_retries - 1:
                     # Final attempt failed
                     return {
                         'status': 'failed',
-                        'error_message': str(e),
-                        'media_type': media_type,
-                        'original_url': media_url,
-                        'attempts': self.max_retries
+                        'error_message': error_message,
+                        'local_path': None
                     }
         
-        # Should never reach here
+        # This shouldn't be reached, but just in case
         return {
             'status': 'failed',
-            'error_message': 'Unknown error occurred',
-            'media_type': media_type,
-            'original_url': media_url
+            'error_message': 'Unknown error in download process',
+            'local_path': None
         }
     
     def _generate_filename(self, tweet_id: str, media_type: str, url: str, index: int) -> str:
@@ -584,7 +570,7 @@ class MediaExtractor:
                     continue
                 
                 # Generate filename
-                filename = self._generate_filename(tweet_id, i, media_item)
+                filename = self._generate_filename_legacy(tweet_id, i, media_item)
                 filepath = os.path.join(self.media_storage_path, filename)
                 
                 # Download the file
@@ -613,8 +599,8 @@ class MediaExtractor:
         
         return downloaded_media
     
-    def _generate_filename(self, tweet_id: str, index: int, media_item: Dict) -> str:
-        """Generate filename for media file"""
+    def _generate_filename_legacy(self, tweet_id: str, index: int, media_item: Dict) -> str:
+        """Generate filename for media file (legacy sync method)"""
         media_type = media_item.get('type', 'unknown')
         url = media_item.get('url', '')
         

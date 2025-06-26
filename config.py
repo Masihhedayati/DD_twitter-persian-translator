@@ -18,6 +18,9 @@ class Config:
     TWITTER_API_KEY = os.environ.get('TWITTER_API_KEY')
     TWITTER_API_BASE_URL = 'https://api.twitterapi.io'
     
+    # Twitter API v2 Configuration (for video URL resolution)
+    TWITTER_BEARER_TOKEN = os.environ.get('TWITTER_BEARER_TOKEN')
+    
     # Webhook Configuration
     TWITTER_WEBHOOK_SECRET = os.environ.get('TWITTER_WEBHOOK_SECRET')
     WEBHOOK_ONLY_MODE = os.environ.get('WEBHOOK_ONLY_MODE', 'false').lower() == 'true'

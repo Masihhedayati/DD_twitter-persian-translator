@@ -418,7 +418,7 @@ class TelegramNotifier:
         
         try:
             # Get media from database
-            media_records = self.db_manager.get_tweet_media(tweet.get('id', ''))
+            media_records = self.db_manager.get_tweet_media(tweet.get('id', ''), completed_only=True)
             
             for media in media_records:
                 local_path = media.get('local_path')

@@ -333,14 +333,16 @@ function renderTweetMedia(container, media) {
     container.innerHTML = '';
     
     media.forEach(item => {
-        if (item.type === 'photo') {
+        const mediaType = item.media_type || item.type; // Fix: use media_type field
+        
+        if (mediaType === 'photo' || mediaType === 'image') { // Fix: handle both photo and image
             const img = document.createElement('img');
             img.src = item.url;
             img.className = 'img-fluid rounded mb-2 me-2';
             img.style.maxHeight = '300px';
             img.onclick = () => window.open(item.url, '_blank');
             container.appendChild(img);
-        } else if (item.type === 'video') {
+        } else if (mediaType === 'video') {
             const video = document.createElement('video');
             video.src = item.url;
             video.className = 'img-fluid rounded mb-2 me-2';

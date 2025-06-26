@@ -421,18 +421,27 @@ class Database:
             logger.error(f"Error updating Telegram status: {e}")
             return False
     
-    def get_tweet_media(self, tweet_id: str) -> List[Dict]:
+    def get_tweet_media(self, tweet_id: str, completed_only: bool = False) -> List[Dict]:
         """Get media files associated with a tweet"""
         try:
             with sqlite3.connect(self.db_path) as conn:
                 conn.row_factory = sqlite3.Row
                 cursor = conn.cursor()
                 
-                cursor.execute('''
-                    SELECT * FROM media 
-                    WHERE tweet_id = ? AND download_status = 'completed'
-                    ORDER BY id ASC
-                ''', (tweet_id,))
+                if completed_only:
+                    # Only return completed downloads (for API responses)
+                    cursor.execute('''
+                        SELECT * FROM media 
+                        WHERE tweet_id = ? AND download_status = 'completed'
+                        ORDER BY id ASC
+                    ''', (tweet_id,))
+                else:
+                    # Return all media (for background worker processing)
+                    cursor.execute('''
+                        SELECT * FROM media 
+                        WHERE tweet_id = ?
+                        ORDER BY id ASC
+                    ''', (tweet_id,))
                 
                 media_files = [dict(row) for row in cursor.fetchall()]
                 return media_files

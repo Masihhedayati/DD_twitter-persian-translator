@@ -406,7 +406,7 @@ def get_tweets():
         enriched_tweets = []
         for tweet in tweets:
             # Get media for this tweet
-            media = database.get_tweet_media(tweet['id'])
+            media = database.get_tweet_media(tweet['id'], completed_only=True)
             
             # Format media URLs for web display
             formatted_media = []

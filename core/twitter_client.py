@@ -4,6 +4,9 @@ import logging
 from typing import List, Dict, Optional
 from requests.exceptions import RequestException
 from datetime import datetime, timedelta
+import re
+from urllib.parse import urlparse
+import os
 
 
 class TwitterClient:
@@ -302,7 +305,6 @@ class TwitterClient:
             quoted_author = tweet['quoted_tweet'].get('author', {}).get('userName', 'unknown')
             
             # Remove the t.co link from quote text if present
-            import re
             quote_text = re.sub(r'https://t\.co/\w+$', '', quote_text).strip()
             
             return f"{quote_text}\n\nQuoting @{quoted_author}: {quoted_text}"
@@ -498,4 +500,139 @@ class TwitterClient:
             'rate_limit_remaining': self.rate_limit_remaining,
             'rate_limit_reset': self.rate_limit_reset,
             'last_request_time': self.last_request_time
-        } 
+        }
+    
+    def resolve_video_urls_v2(self, tweet_id: str, bearer_token: str = None) -> List[Dict]:
+        """
+        Use Twitter API v2 to resolve actual video URLs for a tweet
+        This is a fallback method when TwitterAPI.io doesn't provide video URLs
+        
+        Args:
+            tweet_id: The Twitter tweet ID
+            bearer_token: Optional Twitter API v2 Bearer Token
+            
+        Returns:
+            List of media dictionaries with resolved video URLs
+        """
+        if not bearer_token:
+            # Try to get from environment
+            bearer_token = os.environ.get('TWITTER_BEARER_TOKEN')
+            if not bearer_token:
+                self.logger.warning("No Twitter API v2 Bearer Token available for video URL resolution")
+                return []
+        
+        try:
+            url = f"https://api.twitter.com/2/tweets/{tweet_id}"
+            headers = {
+                'Authorization': f'Bearer {bearer_token}',
+                'Content-Type': 'application/json'
+            }
+            params = {
+                'tweet.fields': 'attachments',
+                'expansions': 'attachments.media_keys',
+                'media.fields': 'variants,alt_text,preview_image_url,duration_ms,public_metrics,type,url'
+            }
+            
+            self.logger.info(f"Resolving video URLs for tweet {tweet_id} using Twitter API v2")
+            
+            response = requests.get(url, headers=headers, params=params, timeout=30)
+            response.raise_for_status()
+            
+            data = response.json()
+            
+            # Extract media information
+            media_items = []
+            if 'includes' in data and 'media' in data['includes']:
+                for media in data['includes']['media']:
+                    if media.get('type') == 'video':
+                        variants = media.get('variants', [])
+                        
+                        # Find the highest quality MP4 variant
+                        best_variant = None
+                        best_bitrate = 0
+                        
+                        for variant in variants:
+                            if variant.get('content_type') == 'video/mp4':
+                                bitrate = variant.get('bit_rate', 0)
+                                if bitrate > best_bitrate:
+                                    best_bitrate = bitrate
+                                    best_variant = variant
+                        
+                        if best_variant:
+                            media_item = {
+                                'type': 'video',
+                                'url': best_variant['url'],
+                                'video_url': best_variant['url'],
+                                'bitrate': best_variant.get('bit_rate'),
+                                'content_type': best_variant.get('content_type'),
+                                'thumbnail_url': media.get('preview_image_url', ''),
+                                'duration': media.get('duration_ms'),
+                                'alt_text': media.get('alt_text', ''),
+                                'width': media.get('width'),
+                                'height': media.get('height'),
+                                'source': 'twitter_api_v2'
+                            }
+                            media_items.append(media_item)
+                    
+                    elif media.get('type') == 'animated_gif':
+                        variants = media.get('variants', [])
+                        
+                        # For animated GIFs, get the MP4 variant
+                        for variant in variants:
+                            if variant.get('content_type') == 'video/mp4':
+                                media_item = {
+                                    'type': 'animated_gif', 
+                                    'url': variant['url'],
+                                    'video_url': variant['url'],
+                                    'content_type': variant.get('content_type'),
+                                    'thumbnail_url': media.get('preview_image_url', ''),
+                                    'alt_text': media.get('alt_text', ''),
+                                    'width': media.get('width'),
+                                    'height': media.get('height'),
+                                    'source': 'twitter_api_v2'
+                                }
+                                media_items.append(media_item)
+                                break
+            
+            self.logger.info(f"Resolved {len(media_items)} video URLs using Twitter API v2")
+            return media_items
+            
+        except RequestException as e:
+            self.logger.error(f"Error resolving video URLs with Twitter API v2 for tweet {tweet_id}: {e}")
+            return []
+        except Exception as e:
+            self.logger.error(f"Unexpected error resolving video URLs for tweet {tweet_id}: {e}")
+            return []
+    
+    def extract_tweet_id_from_url(self, tweet_url: str) -> Optional[str]:
+        """
+        Extract tweet ID from various Twitter URL formats
+        
+        Args:
+            tweet_url: Twitter URL (e.g., https://twitter.com/user/status/123456789)
+            
+        Returns:
+            Tweet ID string or None if not found
+        """
+        if not tweet_url:
+            return None
+            
+        # Common Twitter URL patterns
+        patterns = [
+            r'twitter\.com/\w+/status/(\d+)',
+            r'x\.com/\w+/status/(\d+)',
+            r'mobile\.twitter\.com/\w+/status/(\d+)',
+            r'twitter\.com/i/web/status/(\d+)',
+            r'x\.com/i/web/status/(\d+)'
+        ]
+        
+        for pattern in patterns:
+            match = re.search(pattern, tweet_url)
+            if match:
+                return match.group(1)
+        
+        # If the input is already just a tweet ID (all digits)
+        if tweet_url.isdigit():
+            return tweet_url
+            
+        return None 
