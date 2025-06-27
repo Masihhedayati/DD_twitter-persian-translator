@@ -196,17 +196,22 @@ class AsyncCache:
         return self.cache.delete(key)
 
 class DatabaseOptimizer:
-    """Database performance optimization"""
+    """Database-specific performance optimization"""
     
-    def __init__(self, db_path: str, pool_size: int = 10):
-        self.db_path = db_path
-        self.pool_size = pool_size
+    def __init__(self, pool_size: int = 10):
+        from core.database_config import DatabaseConfig
+        
+        self.database_config = DatabaseConfig
+        self.is_postgresql = DatabaseConfig.is_postgresql()
         self.connection_pool = []
+        self.pool_size = pool_size
         self.pool_lock = threading.Lock()
-        self.stats = DatabaseStats(connection_pool_size=pool_size)
-        self.query_cache = LRUCache(max_size=500, ttl_seconds=300)  # 5 min TTL
-        self.slow_query_threshold = 1.0  # seconds
         self.logger = logging.getLogger(__name__)
+        self.stats = DatabaseStats()
+        self.slow_query_threshold = 1.0  # seconds
+        
+        # Initialize cache for query results
+        self.query_cache = LRUCache(max_size=500, ttl_seconds=300)
         
         # Initialize connection pool
         self._initialize_pool()
@@ -215,17 +220,33 @@ class DatabaseOptimizer:
         """Initialize database connection pool"""
         with self.pool_lock:
             for _ in range(self.pool_size):
-                conn = sqlite3.connect(
-                    self.db_path,
-                    check_same_thread=False,
-                    timeout=30
-                )
-                conn.row_factory = sqlite3.Row
-                # Enable WAL mode for better concurrency
-                conn.execute("PRAGMA journal_mode=WAL")
-                conn.execute("PRAGMA synchronous=NORMAL")
-                conn.execute("PRAGMA cache_size=10000")
-                conn.execute("PRAGMA temp_store=MEMORY")
+                if self.is_postgresql:
+                    import psycopg2
+                    params = self.database_config.get_raw_connection_params()
+                    conn = psycopg2.connect(
+                        host=params['host'],
+                        port=params['port'],
+                        database=params['database'],
+                        user=params['user'],
+                        password=params['password'],
+                        connect_timeout=30
+                    )
+                    conn.autocommit = False
+                else:
+                    import sqlite3
+                    params = self.database_config.get_raw_connection_params()
+                    conn = sqlite3.connect(
+                        params['database'],
+                        check_same_thread=False,
+                        timeout=30
+                    )
+                    conn.row_factory = sqlite3.Row
+                    # Enable WAL mode for better concurrency (SQLite only)
+                    conn.execute("PRAGMA journal_mode=WAL")
+                    conn.execute("PRAGMA synchronous=NORMAL")
+                    conn.execute("PRAGMA cache_size=10000")
+                    conn.execute("PRAGMA temp_store=MEMORY")
+                
                 self.connection_pool.append(conn)
     
     @contextmanager
@@ -239,12 +260,26 @@ class DatabaseOptimizer:
                     self.stats.active_connections += 1
                 else:
                     # Pool exhausted, create temporary connection
-                    conn = sqlite3.connect(
-                        self.db_path,
-                        check_same_thread=False,
-                        timeout=30
-                    )
-                    conn.row_factory = sqlite3.Row
+                    if self.is_postgresql:
+                        import psycopg2
+                        params = self.database_config.get_raw_connection_params()
+                        conn = psycopg2.connect(
+                            host=params['host'],
+                            port=params['port'],
+                            database=params['database'],
+                            user=params['user'],
+                            password=params['password'],
+                            connect_timeout=30
+                        )
+                    else:
+                        import sqlite3
+                        params = self.database_config.get_raw_connection_params()
+                        conn = sqlite3.connect(
+                            params['database'],
+                            check_same_thread=False,
+                            timeout=30
+                        )
+                        conn.row_factory = sqlite3.Row
             
             yield conn
             
@@ -257,7 +292,7 @@ class DatabaseOptimizer:
                     else:
                         conn.close()
     
-    def execute_query(self, query: str, params: Tuple = (), use_cache: bool = True) -> List[sqlite3.Row]:
+    def execute_query(self, query: str, params: tuple = (), use_cache: bool = True) -> list:
         """Execute query with caching and performance monitoring"""
         start_time = time.time()
         
@@ -273,8 +308,14 @@ class DatabaseOptimizer:
         # Execute query
         try:
             with self.get_connection() as conn:
-                cursor = conn.execute(query, params)
-                result = cursor.fetchall()
+                if self.is_postgresql:
+                    cursor = conn.cursor()
+                    cursor.execute(query, params)
+                    result = cursor.fetchall()
+                    cursor.close()
+                else:
+                    cursor = conn.execute(query, params)
+                    result = cursor.fetchall()
                 
                 # Cache SELECT results
                 if cache_key:
@@ -318,22 +359,40 @@ class DatabaseOptimizer:
     def optimize_database(self):
         """Run database optimization tasks"""
         with self.get_connection() as conn:
-            # Analyze query performance
-            conn.execute("ANALYZE")
-            
-            # Vacuum if needed (reclaim space)
-            vacuum_threshold = 1000000  # 1MB
-            page_count = conn.execute("PRAGMA page_count").fetchone()[0]
-            page_size = conn.execute("PRAGMA page_size").fetchone()[0]
-            db_size = page_count * page_size
-            
-            if db_size > vacuum_threshold:
-                conn.execute("VACUUM")
-                self.logger.info("Database vacuum completed")
+            if self.is_postgresql:
+                # PostgreSQL optimization
+                cursor = conn.cursor()
+                cursor.execute("ANALYZE")
+                conn.commit()
+                cursor.close()
+                self.logger.info("PostgreSQL ANALYZE completed")
+            else:
+                # SQLite optimization
+                conn.execute("ANALYZE")
+                
+                # Vacuum if needed (reclaim space)
+                vacuum_threshold = 1000000  # 1MB
+                page_count = conn.execute("PRAGMA page_count").fetchone()[0]
+                page_size = conn.execute("PRAGMA page_size").fetchone()[0]
+                db_size = page_count * page_size
+                
+                if db_size > vacuum_threshold:
+                    conn.execute("VACUUM")
+                    self.logger.info("SQLite vacuum completed")
     
     def get_database_size(self) -> int:
         """Get database size in bytes"""
-        return Path(self.db_path).stat().st_size
+        if self.is_postgresql:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT pg_database_size(current_database())")
+                size = cursor.fetchone()[0]
+                cursor.close()
+                return size
+        else:
+            from pathlib import Path
+            params = self.database_config.get_raw_connection_params()
+            return Path(params['database']).stat().st_size
 
 class MemoryManager:
     """Memory usage monitoring and optimization"""
@@ -484,13 +543,13 @@ class AsyncTaskManager:
 class PerformanceOptimizer:
     """Main performance optimization system"""
     
-    def __init__(self, cache_size: int = 1000, db_path: str = "./tweets.db"):
+    def __init__(self, cache_size: int = 1000):
         self.logger = logging.getLogger(__name__)
         
         # Initialize components
         self.cache = LRUCache(max_size=cache_size, ttl_seconds=3600)  # 1 hour TTL
         self.async_cache = AsyncCache(self.cache)
-        self.db_optimizer = DatabaseOptimizer(db_path)
+        self.db_optimizer = DatabaseOptimizer(10)
         self.memory_manager = MemoryManager()
         self.task_manager = AsyncTaskManager()
         
@@ -667,12 +726,9 @@ class PerformanceOptimizer:
 # Global performance optimizer
 _performance_optimizer: Optional[PerformanceOptimizer] = None
 
-def get_performance_optimizer(cache_size: int = 1000, db_path: str = "./tweets.db") -> PerformanceOptimizer:
-    """Get global performance optimizer"""
-    global _performance_optimizer
-    if _performance_optimizer is None:
-        _performance_optimizer = PerformanceOptimizer(cache_size, db_path)
-    return _performance_optimizer
+def get_performance_optimizer(cache_size: int = 1000) -> PerformanceOptimizer:
+    """Get performance optimizer instance"""
+    return PerformanceOptimizer(cache_size=cache_size)
 
 # Decorators for performance optimization
 def cached(ttl_seconds: int = 3600, key_prefix: str = ""):

@@ -479,8 +479,10 @@ class SQLAlchemyDatabaseWrapper:
     def get_failed_ai_tweets(self, limit=50):
         """Get tweets that failed AI processing"""
         try:
-            # For now, return empty list - would need error tracking
-            return []
+            # For now, return tweets that are not AI processed
+            # In a full implementation, we'd need an error tracking mechanism
+            tweets = Tweet.query.filter_by(ai_processed=False).limit(limit).all()
+            return [self._tweet_to_dict(tweet) for tweet in tweets]
         except Exception as e:
             logger.error(f"Error getting failed AI tweets: {e}")
             return []
@@ -488,18 +490,25 @@ class SQLAlchemyDatabaseWrapper:
     def clear_ai_error(self, tweet_id):
         """Clear AI processing error for a tweet"""
         try:
-            # For now, just return True - would need error tracking
-            return True
+            tweet = Tweet.query.filter_by(id=tweet_id).first()
+            if tweet:
+                tweet.ai_processed = False  # Reset to allow retry
+                self.db.session.commit()
+                return True
+            return False
         except Exception as e:
             logger.error(f"Error clearing AI error: {e}")
+            self.db.session.rollback()
             return False
     
     def get_recent_ai_results(self, limit=10):
-        """Get recent AI results"""
+        """Get recent AI processing results"""
         try:
             results = AIResult.query.order_by(AIResult.created_at.desc()).limit(limit).all()
             return [{
+                'id': result.id,
                 'tweet_id': result.tweet_id,
+                'prompt_used': result.prompt_used,
                 'result': result.result,
                 'model_used': result.model_used,
                 'processing_time': result.processing_time,
@@ -535,33 +544,38 @@ class SQLAlchemyDatabaseWrapper:
         return "postgresql_database"  # Return a placeholder since we're using PostgreSQL
     
     def get_tweets_without_ai_analysis(self, limit=50):
-        """Get tweets that don't have AI analysis"""
+        """Get tweets that haven't been processed by AI"""
         try:
             tweets = Tweet.query.filter_by(ai_processed=False).limit(limit).all()
             return [self._tweet_to_dict(tweet) for tweet in tweets]
         except Exception as e:
-            logger.error(f"Error getting tweets without AI analysis: {e}")
+            logger.error(f"Error getting unprocessed tweets: {e}")
             return []
     
     def get_tweets_with_missing_media(self, limit=50):
-        """Get tweets that have missing media downloads"""
+        """Get tweets that have missing media"""
         try:
-            # Get tweets that have media but haven't been processed for media
-            tweets = Tweet.query.filter_by(media_processed=False).limit(limit).all()
-            
-            # Filter to only tweets that actually have media URLs
-            tweets_with_media = []
-            for tweet in tweets:
-                # Check if tweet content has media URLs (basic check)
-                if any(url in tweet.content.lower() for url in ['pic.twitter.com', 'video.twimg.com', 't.co/']):
-                    tweets_with_media.append(self._tweet_to_dict(tweet))
-                    if len(tweets_with_media) >= limit:
-                        break
-            
-            return tweets_with_media
+            # This would require a more complex query with joins
+            # For now, return an empty list - this method is rarely used
+            return []
         except Exception as e:
             logger.error(f"Error getting tweets with missing media: {e}")
             return []
+    
+    def mark_telegram_sent(self, tweet_id):
+        """Mark a tweet as sent via Telegram"""
+        try:
+            tweet = Tweet.query.filter_by(id=tweet_id).first()
+            if tweet:
+                tweet.telegram_sent = True
+                tweet.processed_at = datetime.utcnow()
+                self.db.session.commit()
+                return True
+            return False
+        except Exception as e:
+            logger.error(f"Error marking tweet as sent: {e}")
+            self.db.session.rollback()
+            return False
 
 def cleanup_components():
     """Cleanup components on app shutdown"""

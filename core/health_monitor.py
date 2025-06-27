@@ -253,39 +253,79 @@ class HealthMonitor:
     def _check_database_health(self):
         """Check database health"""
         try:
-            db_path = './tweets.db'
-            if Path(db_path).exists():
-                # Check database connectivity
-                with sqlite3.connect(db_path, timeout=5) as conn:
-                    cursor = conn.cursor()
-                    cursor.execute("SELECT COUNT(*) FROM tweets")
-                    tweet_count = cursor.fetchone()[0]
-                
-                # Check database file size
-                db_size = Path(db_path).stat().st_size // (1024**2)  # MB
+            from core.database_config import DatabaseConfig
+            
+            if DatabaseConfig.is_postgresql():
+                # PostgreSQL health check
+                import psycopg2
+                params = DatabaseConfig.get_raw_connection_params()
+                conn = psycopg2.connect(
+                    host=params['host'],
+                    port=params['port'],
+                    database=params['database'],
+                    user=params['user'],
+                    password=params['password'],
+                    connect_timeout=5
+                )
+                cursor = conn.cursor()
+                cursor.execute("SELECT COUNT(*) FROM tweets")
+                tweet_count = cursor.fetchone()[0]
+                cursor.execute("SELECT pg_size_pretty(pg_database_size(current_database()))")
+                db_size_str = cursor.fetchone()[0]
+                conn.close()
                 
                 self.system_metrics['database_connectivity'] = HealthMetric(
                     name='database_connectivity',
                     value='connected',
                     unit='status',
                     status=HealthStatus.HEALTHY,
-                    message=f"Database accessible with {tweet_count} tweets"
+                    message=f"PostgreSQL accessible with {tweet_count} tweets (Size: {db_size_str})"
                 )
                 
                 self.system_metrics['database_size'] = HealthMetric(
                     name='database_size',
-                    value=db_size,
-                    unit='MB',
+                    value=db_size_str,
+                    unit='PostgreSQL',
                     status=HealthStatus.HEALTHY
                 )
             else:
-                self.system_metrics['database_connectivity'] = HealthMetric(
-                    name='database_connectivity',
-                    value='missing',
-                    unit='status',
-                    status=HealthStatus.CRITICAL,
-                    message="Database file not found"
-                )
+                # SQLite health check
+                import sqlite3
+                from pathlib import Path
+                params = DatabaseConfig.get_raw_connection_params()
+                db_path = params['database']
+                
+                if Path(db_path).exists():
+                    with sqlite3.connect(db_path, timeout=5) as conn:
+                        cursor = conn.cursor()
+                        cursor.execute("SELECT COUNT(*) FROM tweets")
+                        tweet_count = cursor.fetchone()[0]
+                    
+                    # Check database file size
+                    db_size = Path(db_path).stat().st_size // (1024**2)  # MB
+                    
+                    self.system_metrics['database_connectivity'] = HealthMetric(
+                        name='database_connectivity',
+                        value='connected',
+                        unit='status',
+                        status=HealthStatus.HEALTHY,
+                        message=f"SQLite accessible with {tweet_count} tweets"
+                    )
+                    
+                    self.system_metrics['database_size'] = HealthMetric(
+                        name='database_size',
+                        value=db_size,
+                        unit='MB',
+                        status=HealthStatus.HEALTHY
+                    )
+                else:
+                    self.system_metrics['database_connectivity'] = HealthMetric(
+                        name='database_connectivity',
+                        value='missing',
+                        unit='status',
+                        status=HealthStatus.CRITICAL,
+                        message="Database file not found"
+                    )
         
         except Exception as e:
             self.system_metrics['database_connectivity'] = HealthMetric(

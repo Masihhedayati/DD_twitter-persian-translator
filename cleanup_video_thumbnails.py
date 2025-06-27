@@ -6,7 +6,6 @@ Resets video/animated_gif entries so they can be re-downloaded with proper URLs
 
 import sys
 import os
-import sqlite3
 from datetime import datetime
 
 sys.path.append('.')
@@ -17,9 +16,27 @@ def cleanup_video_thumbnails():
     print("🧹 Cleaning up video thumbnails and resetting download status")
     print("=" * 60)
     
-    # Connect to database
-    conn = sqlite3.connect('./dev_tweets.db')
-    cursor = conn.cursor()
+    # Import database configuration
+    from core.database_config import DatabaseConfig
+    
+    # Connect to database using configuration
+    if DatabaseConfig.is_postgresql():
+        import psycopg2
+        params = DatabaseConfig.get_raw_connection_params()
+        conn = psycopg2.connect(
+            host=params['host'],
+            port=params['port'],
+            database=params['database'],
+            user=params['user'],
+            password=params['password']
+        )
+        conn.autocommit = False
+        cursor = conn.cursor()
+    else:
+        import sqlite3
+        params = DatabaseConfig.get_raw_connection_params()
+        conn = sqlite3.connect(params['database'])
+        cursor = conn.cursor()
     
     try:
         # Find all video/animated_gif entries with JPG files
@@ -37,7 +54,10 @@ def cleanup_video_thumbnails():
         cleaned_count = 0
         
         for item in thumbnail_items:
-            media_id, tweet_id, local_path, original_url, media_type = item
+            if DatabaseConfig.is_postgresql():
+                media_id, tweet_id, local_path, original_url, media_type = item
+            else:
+                media_id, tweet_id, local_path, original_url, media_type = item
             
             print(f"🔄 Processing {media_type} for tweet {tweet_id}")
             print(f"   URL: {original_url[:60]}...")
@@ -51,13 +71,22 @@ def cleanup_video_thumbnails():
                     print(f"   ⚠️  Could not remove file {local_path}: {e}")
             
             # Reset download status to pending
-            cursor.execute('''
-                UPDATE media 
-                SET download_status = 'pending',
-                    local_path = NULL,
-                    error_message = NULL
-                WHERE id = ?
-            ''', (media_id,))
+            if DatabaseConfig.is_postgresql():
+                cursor.execute('''
+                    UPDATE media 
+                    SET download_status = 'pending',
+                        local_path = NULL,
+                        error_message = NULL
+                    WHERE id = %s
+                ''', (media_id,))
+            else:
+                cursor.execute('''
+                    UPDATE media 
+                    SET download_status = 'pending',
+                        local_path = NULL,
+                        error_message = NULL
+                    WHERE id = ?
+                ''', (media_id,))
             
             cleaned_count += 1
         
@@ -82,7 +111,10 @@ def cleanup_video_thumbnails():
         
         print(f"\n📋 Current video/gif media status:")
         for row in cursor.fetchall():
-            media_type, status, count = row
+            if DatabaseConfig.is_postgresql():
+                media_type, status, count = row
+            else:
+                media_type, status, count = row
             print(f"  {media_type}: {status} = {count}")
         
     except Exception as e:
@@ -91,6 +123,7 @@ def cleanup_video_thumbnails():
         return False
     
     finally:
+        cursor.close()
         conn.close()
     
     print(f"\n🚀 Ready for background worker to retry downloads with new URL resolution!")
