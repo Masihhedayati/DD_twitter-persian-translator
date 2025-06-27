@@ -490,6 +490,33 @@ class TelegramNotifier:
             self.logger.error(f"Failed to queue text message: {e}")
             return False
     
+    async def send_tweet_notification(self, tweet: Dict[str, Any], ai_result: Dict[str, Any] = None) -> bool:
+        """
+        Send a tweet notification immediately (synchronous interface).
+        
+        Args:
+            tweet: Tweet data dictionary
+            ai_result: AI processing result (optional)
+            
+        Returns:
+            bool: True if sent successfully
+        """
+        try:
+            message_data = {
+                'type': 'tweet',
+                'tweet': tweet,
+                'ai_result': ai_result,
+                'tweet_id': tweet.get('id'),
+                'timestamp': datetime.now().isoformat()
+            }
+            
+            await self._send_tweet_notification(message_data)
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Error sending tweet notification: {e}")
+            return False
+    
     def get_queue_status(self) -> Dict[str, Any]:
         """
         Get current queue status and statistics.
