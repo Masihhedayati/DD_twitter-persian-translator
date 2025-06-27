@@ -562,6 +562,8 @@ async function saveSettings(event) {
         
         showStatus('Saving settings...', 'info');
         
+        console.log('Sending settings data:', JSON.stringify(settings, null, 2));
+        
         const response = await fetch('/api/settings', {
             method: 'POST',
             headers: {
@@ -571,7 +573,9 @@ async function saveSettings(event) {
         });
         
         if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
+            const errorText = await response.text();
+            console.error('Settings save error response:', errorText);
+            throw new Error(`HTTP error! status: ${response.status} - ${errorText}`);
         }
         
         const result = await response.json();
