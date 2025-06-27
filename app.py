@@ -2,6 +2,7 @@
 # Main Flask Application
 
 from flask import Flask, render_template, request, jsonify
+from flask_sqlalchemy import SQLAlchemy
 import os
 import logging
 from datetime import datetime
@@ -10,7 +11,7 @@ import threading
 import time
 
 # Import core components
-from core.database import Database
+from core.database_config import DatabaseConfig
 from core.polling_scheduler import PollingScheduler
 from core.error_handler import get_system_health, log_error
 from core.webhook_handler import TwitterWebhookHandler
@@ -39,6 +40,13 @@ logger = logging.getLogger(__name__)
 # Load configuration
 app.config.from_object('config.Config')
 
+# Configure database using DatabaseConfig
+db_config = DatabaseConfig.get_sqlalchemy_config()
+app.config.update(db_config)
+
+# Initialize SQLAlchemy
+db = SQLAlchemy(app)
+
 # Global variables for components
 database = None
 scheduler = None
@@ -48,13 +56,103 @@ twitter_client = None
 ai_processor = None
 background_worker = None
 
+# Define SQLAlchemy models
+class Tweet(db.Model):
+    __tablename__ = 'tweets'
+    
+    id = db.Column(db.String(50), primary_key=True)
+    username = db.Column(db.String(50), nullable=False, index=True)
+    display_name = db.Column(db.String(100))
+    content = db.Column(db.Text, nullable=False)
+    tweet_type = db.Column(db.String(20), default='tweet')
+    created_at = db.Column(db.DateTime, nullable=False, index=True)
+    detected_at = db.Column(db.DateTime, default=datetime.utcnow)
+    processed_at = db.Column(db.DateTime)
+    ai_processed = db.Column(db.Boolean, default=False)
+    media_processed = db.Column(db.Boolean, default=False)
+    telegram_sent = db.Column(db.Boolean, default=False)
+    likes_count = db.Column(db.Integer, default=0)
+    retweets_count = db.Column(db.Integer, default=0)
+    replies_count = db.Column(db.Integer, default=0)
+    ai_analysis = db.Column(db.Text)
+
+class Media(db.Model):
+    __tablename__ = 'media'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    tweet_id = db.Column(db.String(50), db.ForeignKey('tweets.id'), nullable=False, index=True)
+    media_type = db.Column(db.String(20), nullable=False)
+    original_url = db.Column(db.Text, nullable=False)
+    local_path = db.Column(db.Text)
+    file_size = db.Column(db.Integer)
+    width = db.Column(db.Integer)
+    height = db.Column(db.Integer)
+    duration = db.Column(db.Integer)
+    download_status = db.Column(db.String(20), default='pending')
+    downloaded_at = db.Column(db.DateTime)
+    error_message = db.Column(db.Text)
+
+class AIResult(db.Model):
+    __tablename__ = 'ai_results'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    tweet_id = db.Column(db.String(50), db.ForeignKey('tweets.id'), nullable=False, index=True)
+    prompt_used = db.Column(db.Text, nullable=False)
+    result = db.Column(db.Text)
+    model_used = db.Column(db.String(50))
+    processing_time = db.Column(db.Float)
+    tokens_used = db.Column(db.Integer)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+class Setting(db.Model):
+    __tablename__ = 'settings'
+    
+    key = db.Column(db.String(100), primary_key=True)
+    value = db.Column(db.Text)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+def initialize_database():
+    """Initialize database tables and default data"""
+    try:
+        # Test database connection
+        if not DatabaseConfig.test_connection():
+            logger.error("Database connection test failed")
+            return False
+            
+        logger.info(f"Using database: {DatabaseConfig.get_database_url()}")
+        
+        # Create tables
+        with app.app_context():
+            db.create_all()
+            logger.info("Database tables created successfully")
+            
+            # Initialize default monitored users if none exist
+            existing_users = Setting.query.filter_by(key='monitored_users').first()
+            if not existing_users:
+                default_users = os.environ.get('MONITORED_USERS', 'elonmusk,naval,paulg')
+                new_setting = Setting(key='monitored_users', value=default_users)
+                db.session.add(new_setting)
+                db.session.commit()
+                logger.info(f"Initialized default monitored users: {default_users}")
+        
+        return True
+        
+    except Exception as e:
+        logger.error(f"Database initialization failed: {e}")
+        return False
+
 def initialize_components():
     """Initialize database, scheduler, and webhook components"""
     global database, scheduler, webhook_handler, rss_webhook_handler, twitter_client, ai_processor, background_worker
     
     try:
-        # Initialize database
-        database = Database(app.config.get('DATABASE_PATH', './tweets.db'))
+        # Initialize database first
+        if not initialize_database():
+            logger.error("Failed to initialize database")
+            return False
+        
+        # Use a wrapper class for SQLAlchemy compatibility
+        database = SQLAlchemyDatabaseWrapper(db)
         logger.info("Database initialized successfully")
         
         # Create configuration dictionary for scheduler
@@ -133,6 +231,190 @@ def initialize_components():
     except Exception as e:
         logger.error(f"Error initializing components: {e}")
         return False
+
+# SQLAlchemy Database Wrapper to maintain compatibility with existing code
+class SQLAlchemyDatabaseWrapper:
+    """Wrapper class to maintain compatibility with the old Database interface"""
+    
+    def __init__(self, db_instance):
+        self.db = db_instance
+        
+    def get_monitored_users(self):
+        """Get list of monitored users"""
+        try:
+            setting = Setting.query.filter_by(key='monitored_users').first()
+            if setting and setting.value:
+                return [user.strip() for user in setting.value.split(',') if user.strip()]
+            return ['elonmusk', 'naval', 'paulg']  # Default users
+        except Exception as e:
+            logger.error(f"Error getting monitored users: {e}")
+            return []
+    
+    def set_monitored_users(self, users):
+        """Set monitored users"""
+        try:
+            users_str = ','.join(users)
+            setting = Setting.query.filter_by(key='monitored_users').first()
+            if setting:
+                setting.value = users_str
+                setting.updated_at = datetime.utcnow()
+            else:
+                setting = Setting(key='monitored_users', value=users_str)
+                self.db.session.add(setting)
+            
+            self.db.session.commit()
+            return True
+        except Exception as e:
+            logger.error(f"Error setting monitored users: {e}")
+            self.db.session.rollback()
+            return False
+    
+    def add_monitored_user(self, username):
+        """Add a user to monitoring list"""
+        try:
+            current_users = self.get_monitored_users()
+            if username not in current_users:
+                current_users.append(username)
+                return self.set_monitored_users(current_users)
+            return True
+        except Exception as e:
+            logger.error(f"Error adding monitored user: {e}")
+            return False
+    
+    def remove_monitored_user(self, username):
+        """Remove a user from monitoring list"""
+        try:
+            current_users = self.get_monitored_users()
+            if username in current_users:
+                current_users.remove(username)
+                return self.set_monitored_users(current_users)
+            return True
+        except Exception as e:
+            logger.error(f"Error removing monitored user: {e}")
+            return False
+    
+    def get_tweets(self, limit=50, offset=0):
+        """Get tweets from database"""
+        try:
+            tweets = Tweet.query.order_by(Tweet.created_at.desc()).limit(limit).offset(offset).all()
+            return [self._tweet_to_dict(tweet) for tweet in tweets]
+        except Exception as e:
+            logger.error(f"Error getting tweets: {e}")
+            return []
+    
+    def insert_tweet(self, tweet_data):
+        """Insert a new tweet"""
+        try:
+            tweet = Tweet(
+                id=tweet_data.get('id'),
+                username=tweet_data.get('username'),
+                display_name=tweet_data.get('display_name'),
+                content=tweet_data.get('content'),
+                tweet_type=tweet_data.get('tweet_type', 'tweet'),
+                created_at=tweet_data.get('created_at'),
+                likes_count=tweet_data.get('likes_count', 0),
+                retweets_count=tweet_data.get('retweets_count', 0),
+                replies_count=tweet_data.get('replies_count', 0)
+            )
+            
+            self.db.session.merge(tweet)  # Use merge for upsert behavior
+            self.db.session.commit()
+            return True
+        except Exception as e:
+            logger.error(f"Error inserting tweet: {e}")
+            self.db.session.rollback()
+            return False
+    
+    def _tweet_to_dict(self, tweet):
+        """Convert Tweet model to dictionary"""
+        return {
+            'id': tweet.id,
+            'username': tweet.username,
+            'display_name': tweet.display_name,
+            'content': tweet.content,
+            'tweet_type': tweet.tweet_type,
+            'created_at': tweet.created_at.isoformat() if tweet.created_at else None,
+            'detected_at': tweet.detected_at.isoformat() if tweet.detected_at else None,
+            'processed_at': tweet.processed_at.isoformat() if tweet.processed_at else None,
+            'ai_processed': tweet.ai_processed,
+            'media_processed': tweet.media_processed,
+            'telegram_sent': tweet.telegram_sent,
+            'likes_count': tweet.likes_count,
+            'retweets_count': tweet.retweets_count,
+            'replies_count': tweet.replies_count,
+            'ai_analysis': tweet.ai_analysis
+        }
+    
+    def get_stats(self):
+        """Get database statistics"""
+        try:
+            total_tweets = Tweet.query.count()
+            ai_processed = Tweet.query.filter_by(ai_processed=True).count()
+            telegram_sent = Tweet.query.filter_by(telegram_sent=True).count()
+            
+            return {
+                'total_tweets': total_tweets,
+                'ai_processed': ai_processed,
+                'telegram_sent': telegram_sent,
+                'unprocessed': total_tweets - ai_processed
+            }
+        except Exception as e:
+            logger.error(f"Error getting stats: {e}")
+            return {'total_tweets': 0, 'ai_processed': 0, 'telegram_sent': 0, 'unprocessed': 0}
+    
+    def get_tweet_by_id(self, tweet_id):
+        """Get a specific tweet by ID"""
+        try:
+            tweet = Tweet.query.filter_by(id=tweet_id).first()
+            return self._tweet_to_dict(tweet) if tweet else None
+        except Exception as e:
+            logger.error(f"Error getting tweet by ID: {e}")
+            return None
+    
+    def store_tweet(self, tweet_data):
+        """Store a tweet and return its ID"""
+        try:
+            if self.insert_tweet(tweet_data):
+                return tweet_data.get('id')
+            return None
+        except Exception as e:
+            logger.error(f"Error storing tweet: {e}")
+            return None
+    
+    def tweet_exists(self, tweet_id):
+        """Check if a tweet exists"""
+        try:
+            return Tweet.query.filter_by(id=tweet_id).first() is not None
+        except Exception as e:
+            logger.error(f"Error checking tweet existence: {e}")
+            return False
+    
+    def get_setting(self, key, default_value=None):
+        """Get a setting value"""
+        try:
+            setting = Setting.query.filter_by(key=key).first()
+            return setting.value if setting else default_value
+        except Exception as e:
+            logger.error(f"Error getting setting: {e}")
+            return default_value
+    
+    def set_setting(self, key, value):
+        """Set a setting value"""
+        try:
+            setting = Setting.query.filter_by(key=key).first()
+            if setting:
+                setting.value = value
+                setting.updated_at = datetime.utcnow()
+            else:
+                setting = Setting(key=key, value=value)
+                self.db.session.add(setting)
+            
+            self.db.session.commit()
+            return True
+        except Exception as e:
+            logger.error(f"Error setting value: {e}")
+            self.db.session.rollback()
+            return False
 
 def cleanup_components():
     """Cleanup components on app shutdown"""

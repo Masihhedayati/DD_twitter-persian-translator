@@ -4,7 +4,6 @@ import hmac
 import hashlib
 from datetime import datetime
 from typing import Dict, Any, Optional
-from core.database import Database
 from core.twitter_client import TwitterClient
 from core.ai_processor import AIProcessor
 from core.telegram_bot import create_telegram_notifier
@@ -13,7 +12,7 @@ from config import Config
 class RSSWebhookHandler:
     """Handles incoming RSS.app webhooks to trigger Twitter polling"""
     
-    def __init__(self, db_manager: Database, twitter_client: TwitterClient, ai_processor: AIProcessor, config: Dict[str, Any]):
+    def __init__(self, db_manager, twitter_client: TwitterClient, ai_processor: AIProcessor, config: Dict[str, Any]):
         self.db = db_manager
         self.twitter_client = twitter_client
         self.ai_processor = ai_processor
