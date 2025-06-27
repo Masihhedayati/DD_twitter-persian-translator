@@ -2063,6 +2063,39 @@ def export_analytics_data():
         logger.error(f"Error exporting analytics: {e}")
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/debug/direct-db-test')
+def direct_database_test():
+    """Direct database test without component dependencies"""
+    try:
+        # Test basic database query
+        with app.app_context():
+            # Try to create tables
+            db.create_all()
+            
+            # Test a simple query
+            test_setting = Setting.query.limit(1).all()
+            
+            # Try to count records
+            settings_count = Setting.query.count()
+            tweets_count = Tweet.query.count()
+            
+            return jsonify({
+                'status': 'success',
+                'database_url': DatabaseConfig.get_database_url(),
+                'is_postgresql': DatabaseConfig.is_postgresql(),
+                'settings_count': settings_count,
+                'tweets_count': tweets_count,
+                'tables_created': True
+            })
+            
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'error': str(e),
+            'database_url': DatabaseConfig.get_database_url(),
+            'is_postgresql': DatabaseConfig.is_postgresql()
+        }), 500
+
 if __name__ == '__main__':
     # Ensure required directories exist
     os.makedirs('logs', exist_ok=True)
