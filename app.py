@@ -1531,6 +1531,14 @@ def get_success_rate():
 def get_monitored_users():
     """Get list of currently monitored users"""
     try:
+        # DEBUG: Check the database object type and attributes
+        logger.info(f"Database object type: {type(database)}")
+        logger.info(f"Database has db_path: {hasattr(database, 'db_path')}")
+        if hasattr(database, 'db_path'):
+            logger.info(f"Database db_path value: {database.db_path}")
+        else:
+            logger.info(f"Database attributes: {dir(database)}")
+        
         # Get monitored users from database settings
         if database:
             users = database.get_monitored_users()
