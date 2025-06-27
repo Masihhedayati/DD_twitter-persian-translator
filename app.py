@@ -2206,10 +2206,36 @@ def simple_test():
         'commit': '7c13cc1_manual_redeploy_test'
     })
 
+@app.route('/api/debug/database-methods')
+def debug_database_methods():
+    """Debug endpoint to check which methods are available on database wrapper"""
+    try:
+        if database:
+            methods = [method for method in dir(database) if not method.startswith('_')]
+            missing_methods = []
+            
+            # Check for specific methods that were failing
+            required_methods = ['get_ai_parameters', 'set_ai_parameters', 'get_monitored_users']
+            for method in required_methods:
+                if not hasattr(database, method):
+                    missing_methods.append(method)
+            
+            return jsonify({
+                'available_methods': methods,
+                'missing_methods': missing_methods,
+                'database_type': str(type(database)),
+                'has_db_path': hasattr(database, 'db_path'),
+                'test_get_monitored_users': len(database.get_monitored_users()) if hasattr(database, 'get_monitored_users') else 'NOT_AVAILABLE'
+            })
+        else:
+            return jsonify({'error': 'No database instance available'})
+    except Exception as e:
+        return jsonify({'error': str(e), 'database_available': database is not None})
+
 @app.route('/api/version/check')
 def version_check():
     """Simple endpoint to verify latest deployment"""
-    return "LATEST_DEPLOYMENT_7c13cc1_LIVE"
+    return "LATEST_DEPLOYMENT_33b90df_CRITICAL_FIX"
 
 if __name__ == '__main__':
     # Ensure required directories exist
