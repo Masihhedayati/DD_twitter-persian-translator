@@ -214,6 +214,18 @@ function populateSettingsForm(settings) {
     if (aiMaxTokensElement) {
         aiMaxTokensElement.value = aiSettings.max_tokens || 150;
     }
+    
+    // Telegram settings
+    const telegramSettings = settings.telegram_settings || {};
+    const telegramBotTokenElement = document.getElementById('telegramBotToken');
+    if (telegramBotTokenElement) {
+        telegramBotTokenElement.value = telegramSettings.bot_token || '';
+    }
+    
+    const telegramChatIdElement = document.getElementById('telegramChatId');
+    if (telegramChatIdElement) {
+        telegramChatIdElement.value = telegramSettings.chat_id || '';
+    }
 }
 
 // Update system status display
@@ -541,6 +553,10 @@ async function saveSettings(event) {
                 prompt: document.getElementById('aiPrompt').value,
                 // Add new parameters format
                 parameters: collectParameterValues()
+            },
+            telegram_settings: {
+                bot_token: document.getElementById('telegramBotToken').value,
+                chat_id: document.getElementById('telegramChatId').value
             }
         };
         
@@ -778,34 +794,79 @@ async function validateTelegramConfig() {
         return;
     }
     
+    const validateButton = document.querySelector('button[onclick="validateTelegramConfig()"]');
+    if (validateButton) {
+        setButtonLoading(validateButton, true, 'Validating...');
+    }
+    
     try {
         showStatus('Validating Telegram configuration...', 'info');
         
-        // For now, just check format and show success
-        // In a real implementation, you'd validate with Telegram API
-        const botTokenPattern = /^\d+:[A-Za-z0-9_-]+$/;
-        const chatIdPattern = /^-?\d+$/;
+        const response = await fetch('/api/telegram/validate', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                bot_token: botToken,
+                chat_id: chatId
+            })
+        });
         
-        if (!botTokenPattern.test(botToken)) {
-            throw new Error('Invalid bot token format');
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
         }
         
-        if (!chatIdPattern.test(chatId)) {
-            throw new Error('Invalid chat ID format');
+        const result = await response.json();
+        
+        if (result.success && result.bot_info) {
+            // Display bot info
+            const botInfoDisplay = document.getElementById('botInfoDisplay');
+            const botUsernameEl = document.getElementById('botUsername');
+            const botNameEl = document.getElementById('botName');
+            
+            if (botUsernameEl && result.bot_info.username) {
+                botUsernameEl.textContent = `@${result.bot_info.username}`;
+            }
+            
+            if (botNameEl && result.bot_info.first_name) {
+                let displayName = result.bot_info.first_name;
+                if (result.chat_info && result.chat_info.title) {
+                    displayName += ` → ${result.chat_info.title}`;
+                } else if (result.chat_info && result.chat_info.type) {
+                    displayName += ` → ${result.chat_info.type}`;
+                }
+                botNameEl.textContent = displayName;
+            }
+            
+            if (botInfoDisplay) {
+                botInfoDisplay.style.display = 'block';
+            }
+            
+            let successMsg = 'Telegram configuration is valid!';
+            if (result.chat_info && result.chat_info.title) {
+                successMsg += ` Connected to: ${result.chat_info.title}`;
+            }
+            
+            showStatus(successMsg, 'success');
+        } else {
+            throw new Error('Validation failed: Invalid response from server');
         }
-        
-        // Show bot info (mock data for now)
-        const botInfoDisplay = document.getElementById('botInfoDisplay');
-        document.getElementById('botUsername').textContent = '@your_bot';
-        document.getElementById('botName').textContent = 'Your Bot Name';
-        botInfoDisplay.style.display = 'block';
-        
-        showStatus('Telegram configuration is valid!', 'success');
         
     } catch (error) {
         console.error('Error validating Telegram config:', error);
-        showStatus('Validation failed: ' + error.message, 'error');
-        document.getElementById('botInfoDisplay').style.display = 'none';
+        showStatus('Validation failed: ' + error.message, 'error', 10000);
+        
+        // Hide bot info display on error
+        const botInfoDisplay = document.getElementById('botInfoDisplay');
+        if (botInfoDisplay) {
+            botInfoDisplay.style.display = 'none';
+        }
+    } finally {
+        if (validateButton) {
+            setButtonLoading(validateButton, false);
+        }
     }
 }
 

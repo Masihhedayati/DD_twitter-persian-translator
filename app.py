@@ -1305,6 +1305,10 @@ def get_settings():
                 'max_tokens': int(database.get_setting('ai_max_tokens', str(Config.DEFAULT_AI_MAX_TOKENS))) if database else Config.DEFAULT_AI_MAX_TOKENS,
                 'prompt': database.get_setting('ai_prompt', Config.DEFAULT_AI_PROMPT) if database else Config.DEFAULT_AI_PROMPT,
                 'parameters': database.get_ai_parameters() if database else {}
+            },
+            'telegram_settings': {
+                'bot_token': database.get_setting('telegram_bot_token', '') if database else '',
+                'chat_id': database.get_setting('telegram_chat_id', '') if database else ''
             }
         }
         return jsonify(settings)
@@ -1394,6 +1398,18 @@ def update_settings():
             if 'historical_hours' in twitter_settings:
                 database.set_setting('historical_hours', str(twitter_settings['historical_hours']))
                 updated_settings.append('historical_hours')
+        
+        # Update Telegram settings
+        if 'telegram_settings' in data and database:
+            telegram_settings = data['telegram_settings']
+            
+            if 'bot_token' in telegram_settings:
+                database.set_setting('telegram_bot_token', telegram_settings['bot_token'])
+                updated_settings.append('telegram_bot_token')
+            
+            if 'chat_id' in telegram_settings:
+                database.set_setting('telegram_chat_id', telegram_settings['chat_id'])
+                updated_settings.append('telegram_chat_id')
         
         return jsonify({
             'success': True,
@@ -2325,6 +2341,78 @@ def test_database_wrapper():
             'total_required_properties': len(required_properties)
         })
     except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/telegram/validate', methods=['POST'])
+def validate_telegram_config():
+    """Validate Telegram bot configuration and get bot/chat info"""
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
+        
+        bot_token = data.get('bot_token')
+        chat_id = data.get('chat_id')
+        
+        if not bot_token or not chat_id:
+            return jsonify({'error': 'Bot token and chat ID are required'}), 400
+        
+        import requests
+        
+        # Validate bot token and get bot info
+        bot_info_url = f"https://api.telegram.org/bot{bot_token}/getMe"
+        try:
+            bot_response = requests.get(bot_info_url, timeout=10)
+            if not bot_response.ok:
+                return jsonify({'error': 'Invalid bot token or bot is not accessible'}), 400
+            
+            bot_data = bot_response.json()
+            if not bot_data.get('ok'):
+                return jsonify({'error': 'Bot token validation failed'}), 400
+            
+            bot_info = bot_data.get('result', {})
+            
+        except requests.RequestException as e:
+            logger.error(f"Error validating bot token: {e}")
+            return jsonify({'error': 'Failed to connect to Telegram API'}), 500
+        
+        # Get chat info
+        chat_info_url = f"https://api.telegram.org/bot{bot_token}/getChat"
+        chat_info = None
+        try:
+            chat_response = requests.get(chat_info_url, params={'chat_id': chat_id}, timeout=10)
+            if chat_response.ok:
+                chat_data = chat_response.json()
+                if chat_data.get('ok'):
+                    chat_info = chat_data.get('result', {})
+        except requests.RequestException as e:
+            logger.warning(f"Could not get chat info: {e}")
+            # This is not critical, continue without chat info
+        
+        # Build response
+        response_data = {
+            'success': True,
+            'bot_info': {
+                'username': bot_info.get('username'),
+                'first_name': bot_info.get('first_name'),
+                'id': bot_info.get('id'),
+                'is_bot': bot_info.get('is_bot', False)
+            },
+            'chat_info': None
+        }
+        
+        if chat_info:
+            response_data['chat_info'] = {
+                'id': chat_info.get('id'),
+                'title': chat_info.get('title'),
+                'type': chat_info.get('type'),
+                'username': chat_info.get('username')
+            }
+        
+        return jsonify(response_data)
+        
+    except Exception as e:
+        logger.error(f"Error validating Telegram config: {e}")
         return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
