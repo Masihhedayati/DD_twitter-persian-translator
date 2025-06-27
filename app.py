@@ -207,18 +207,25 @@ def initialize_components():
         rss_webhook_handler = RSSWebhookHandler(database, twitter_client, ai_processor, config)
         logger.info("RSS webhook handler initialized successfully")
         
-        # Initialize scheduler based on mode
-        webhook_only_mode = config.get('WEBHOOK_ONLY_MODE', False)
-        hybrid_mode = config.get('HYBRID_MODE', True)
+        # Initialize scheduler based on mode - read from database first, fallback to config
+        try:
+            monitoring_mode = database.get_setting('monitoring_mode', 'hybrid')
+        except Exception as e:
+            logger.warning(f"Could not read monitoring_mode from database: {e}, using config fallback")
+            # Fallback to environment variables if database not available
+            webhook_only_mode = config.get('WEBHOOK_ONLY_MODE', False)
+            monitoring_mode = 'webhook' if webhook_only_mode else 'hybrid'
         
-        if not webhook_only_mode:
+        logger.info(f"Monitoring mode: {monitoring_mode}")
+        
+        if monitoring_mode != 'webhook':
             scheduler = PollingScheduler(config, database)
             logger.info("Polling scheduler initialized successfully")
             
             # Start scheduler
             scheduler.start()
             
-            if hybrid_mode:
+            if monitoring_mode == 'hybrid':
                 logger.info("Hybrid mode enabled - initial historical scrape + webhook monitoring")
             else:
                 logger.info("Polling mode enabled - continuous polling")
