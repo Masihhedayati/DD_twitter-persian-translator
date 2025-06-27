@@ -915,15 +915,7 @@ class PollingScheduler:
             
             for tweet in unsent_tweets:
                 try:
-                    success = self.telegram_notifier.send_tweet_notification(
-                        tweet_id=tweet['id'],
-                        username=tweet['username'],
-                        content=tweet['content'],
-                        created_at=tweet['created_at'],
-                        likes_count=tweet.get('likes_count', 0),
-                        retweets_count=tweet.get('retweets_count', 0),
-                        replies_count=tweet.get('replies_count', 0)
-                    )
+                    success = self.telegram_notifier.queue_tweet_notification(tweet)
                     
                     if success:
                         sent_count += 1
