@@ -238,14 +238,37 @@ class SQLAlchemyDatabaseWrapper:
     
     def __init__(self, db_instance):
         self.db = db_instance
+        # Store reference to Flask app for context
+        self.app = app
+    
+    def _with_app_context(self, func):
+        """Helper method to execute database operations with Flask application context"""
+        if self.app.app_context:
+            # If we're already in app context, just run the function
+            try:
+                return func()
+            except RuntimeError as e:
+                if "application context" in str(e):
+                    # Fall back to creating context
+                    with self.app.app_context():
+                        return func()
+                else:
+                    raise
+        else:
+            # Create app context
+            with self.app.app_context():
+                return func()
         
     def get_monitored_users(self):
         """Get list of monitored users"""
-        try:
+        def _get_users():
             setting = Setting.query.filter_by(key='monitored_users').first()
             if setting and setting.value:
                 return [user.strip() for user in setting.value.split(',') if user.strip()]
             return ['elonmusk', 'naval', 'paulg']  # Default users
+        
+        try:
+            return self._with_app_context(_get_users)
         except Exception as e:
             logger.error(f"Error getting monitored users: {e}")
             return []
@@ -304,7 +327,7 @@ class SQLAlchemyDatabaseWrapper:
     
     def insert_tweet(self, tweet_data):
         """Insert a new tweet"""
-        try:
+        def _insert():
             tweet = Tweet(
                 id=tweet_data.get('id'),
                 username=tweet_data.get('username'),
@@ -320,9 +343,15 @@ class SQLAlchemyDatabaseWrapper:
             self.db.session.merge(tweet)  # Use merge for upsert behavior
             self.db.session.commit()
             return True
+        
+        try:
+            return self._with_app_context(_insert)
         except Exception as e:
             logger.error(f"Error inserting tweet: {e}")
-            self.db.session.rollback()
+            try:
+                self.db.session.rollback()
+            except:
+                pass
             return False
     
     def _tweet_to_dict(self, tweet):
@@ -383,8 +412,11 @@ class SQLAlchemyDatabaseWrapper:
     
     def tweet_exists(self, tweet_id):
         """Check if a tweet exists"""
-        try:
+        def _check_exists():
             return Tweet.query.filter_by(id=tweet_id).first() is not None
+        
+        try:
+            return self._with_app_context(_check_exists)
         except Exception as e:
             logger.error(f"Error checking tweet existence: {e}")
             return False
@@ -418,9 +450,12 @@ class SQLAlchemyDatabaseWrapper:
     
     def get_unprocessed_tweets(self, limit=50):
         """Get tweets that haven't been processed by AI"""
-        try:
+        def _get_unprocessed():
             tweets = Tweet.query.filter_by(ai_processed=False).limit(limit).all()
             return [self._tweet_to_dict(tweet) for tweet in tweets]
+        
+        try:
+            return self._with_app_context(_get_unprocessed)
         except Exception as e:
             logger.error(f"Error getting unprocessed tweets: {e}")
             return []
@@ -574,6 +609,159 @@ class SQLAlchemyDatabaseWrapper:
             return False
         except Exception as e:
             logger.error(f"Error marking tweet as sent: {e}")
+            self.db.session.rollback()
+            return False
+    
+    def get_tweet_media(self, tweet_id, completed_only=False):
+        """Get media files associated with a tweet"""
+        def _get_media():
+            query = Media.query.filter_by(tweet_id=tweet_id)
+            
+            if completed_only:
+                query = query.filter_by(download_status='completed')
+            
+            media_records = query.order_by(Media.id.asc()).all()
+            
+            return [{
+                'id': media.id,
+                'tweet_id': media.tweet_id,
+                'media_type': media.media_type,
+                'original_url': media.original_url,
+                'local_path': media.local_path,
+                'file_size': media.file_size,
+                'width': media.width,
+                'height': media.height,
+                'duration': media.duration,
+                'download_status': media.download_status,
+                'downloaded_at': media.downloaded_at.isoformat() if media.downloaded_at else None,
+                'error_message': media.error_message
+            } for media in media_records]
+        
+        try:
+            return self._with_app_context(_get_media)
+        except Exception as e:
+            logger.error(f"Error getting tweet media for {tweet_id}: {e}")
+            return []
+    
+    def store_media(self, media_data):
+        """Store media file information in database"""
+        try:
+            media = Media(
+                tweet_id=media_data.get('tweet_id'),
+                media_type=media_data.get('media_type'),
+                original_url=media_data.get('original_url'),
+                local_path=media_data.get('local_path'),
+                file_size=media_data.get('file_size'),
+                width=media_data.get('width'),
+                height=media_data.get('height'),
+                duration=media_data.get('duration'),
+                download_status=media_data.get('download_status', 'completed'),
+                downloaded_at=media_data.get('downloaded_at', datetime.utcnow())
+            )
+            
+            self.db.session.add(media)
+            self.db.session.commit()
+            logger.info(f"Media stored for tweet {media_data.get('tweet_id')}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error storing media: {e}")
+            self.db.session.rollback()
+            return False
+    
+    def update_media_status(self, tweet_id, original_url, status, error_message=None):
+        """Update media download status"""
+        try:
+            media = Media.query.filter_by(tweet_id=tweet_id, original_url=original_url).first()
+            if media:
+                media.download_status = status
+                media.error_message = error_message
+                if status == 'completed':
+                    media.downloaded_at = datetime.utcnow()
+                
+                self.db.session.commit()
+                return True
+            return False
+            
+        except Exception as e:
+            logger.error(f"Error updating media status: {e}")
+            self.db.session.rollback()
+            return False
+    
+    def get_unsent_notifications(self, limit=50, username=None, ai_processed_only=True):
+        """Get tweets that need Telegram notifications"""
+        try:
+            query = Tweet.query.filter_by(telegram_sent=False)
+            
+            if ai_processed_only:
+                query = query.filter_by(ai_processed=True)
+            
+            if username:
+                query = query.filter_by(username=username)
+            
+            tweets = query.order_by(Tweet.created_at.asc()).limit(limit).all()
+            return [self._tweet_to_dict(tweet) for tweet in tweets]
+            
+        except Exception as e:
+            logger.error(f"Error getting unsent notifications: {e}")
+            return []
+    
+    def update_tweet_processing_status(self, tweet_id, media_downloaded=False, ai_processed=False):
+        """Update tweet processing status after media download"""
+        try:
+            tweet = Tweet.query.filter_by(id=tweet_id).first()
+            if tweet:
+                if media_downloaded:
+                    tweet.media_processed = True
+                if ai_processed:
+                    tweet.ai_processed = True
+                
+                self.db.session.commit()
+                logger.info(f"Updated processing status for tweet {tweet_id}: media_downloaded={media_downloaded}, ai_processed={ai_processed}")
+                return True
+            return False
+            
+        except Exception as e:
+            logger.error(f"Error updating processing status for tweet {tweet_id}: {e}")
+            self.db.session.rollback()
+            return False
+    
+    def get_telegram_stats(self):
+        """Get Telegram notification statistics"""
+        try:
+            sent_count = Tweet.query.filter_by(telegram_sent=True).count()
+            pending_count = Tweet.query.filter_by(ai_processed=True, telegram_sent=False).count()
+            total_unsent = Tweet.query.filter_by(telegram_sent=False).count()
+            
+            return {
+                'notifications_sent': sent_count,
+                'notifications_pending': pending_count,
+                'total_unsent': total_unsent
+            }
+            
+        except Exception as e:
+            logger.error(f"Error getting Telegram stats: {e}")
+            return {
+                'notifications_sent': 0,
+                'notifications_pending': 0,
+                'total_unsent': 0
+            }
+    
+    def update_telegram_status(self, tweet_id, sent, sent_at=None, error_message=None):
+        """Update Telegram status for a tweet"""
+        try:
+            tweet = Tweet.query.filter_by(id=tweet_id).first()
+            if tweet:
+                tweet.telegram_sent = sent
+                if sent and not tweet.processed_at:
+                    tweet.processed_at = sent_at or datetime.utcnow()
+                
+                self.db.session.commit()
+                return True
+            return False
+            
+        except Exception as e:
+            logger.error(f"Error updating Telegram status: {e}")
             self.db.session.rollback()
             return False
 
