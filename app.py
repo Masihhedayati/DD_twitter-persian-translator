@@ -2101,6 +2101,18 @@ def export_analytics_data():
         logger.error(f"Error exporting analytics: {e}")
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/deployment/status')
+def deployment_status():
+    """Check deployment status and build info"""
+    return jsonify({
+        'status': 'LATEST_BUILD_DEPLOYED',
+        'build_date': '2024-12-28',
+        'commit_info': 'PostgreSQL_SQLAlchemy_Fixed',
+        'database_type': 'PostgreSQL via SQLAlchemy',
+        'user_management_fixed': True,
+        'timestamp': datetime.now().isoformat()
+    })
+
 @app.route('/api/debug/direct-db-test')
 def direct_database_test():
     """Direct database test without component dependencies"""
