@@ -1,5 +1,6 @@
 # =============================================================================
 # PRODUCTION DOCKERFILE - OPTIMIZED FOR KOYEB DEPLOYMENT
+# Build Timestamp: 2024-12-28 PostgreSQL SQLAlchemy Fixed
 # =============================================================================
 
 # Multi-stage build for minimal image size
