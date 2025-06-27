@@ -509,6 +509,25 @@ class SQLAlchemyDatabaseWrapper:
         except Exception as e:
             logger.error(f"Error getting recent AI results: {e}")
             return []
+    
+    def get_ai_parameters(self):
+        """Get AI parameters from settings"""
+        try:
+            params_str = self.get_setting('ai_parameters', '{}')
+            import json
+            return json.loads(params_str)
+        except Exception:
+            return {}
+    
+    def set_ai_parameters(self, parameters):
+        """Set AI parameters as JSON"""
+        try:
+            import json
+            self.set_setting('ai_parameters', json.dumps(parameters))
+            return True
+        except Exception as e:
+            logger.error(f"Error setting AI parameters: {e}")
+            return False
 
 def cleanup_components():
     """Cleanup components on app shutdown"""
@@ -1353,7 +1372,7 @@ def get_detailed_system_status():
             'components': {
                 'database': {
                     'status': 'connected' if database else 'disconnected',
-                    'location': database.db_path if database else None,
+                    'location': 'PostgreSQL via SQLAlchemy' if database else None,
                     'last_backup': None  # Could implement backup tracking
                 },
                 'scheduler': {
@@ -1446,29 +1465,35 @@ def get_monitored_users():
             # Fallback to empty list if no database
             users = []
         
-        # Get stats for each user
+        # Get stats for each user using SQLAlchemy
         user_stats = []
         for username in users:
             if database:
-                # Get basic tweet count for user
-                import sqlite3
-                with sqlite3.connect(database.db_path) as conn:
-                    cursor = conn.cursor()
-                    cursor.execute("SELECT COUNT(*) FROM tweets WHERE username = ?", (username,))
-                    tweet_count = cursor.fetchone()[0]
+                try:
+                    # Get tweet count for user
+                    tweet_count = Tweet.query.filter_by(username=username).count()
                     
-                    cursor.execute("SELECT MAX(created_at) FROM tweets WHERE username = ?", (username,))
-                    last_tweet = cursor.fetchone()[0]
+                    # Get last tweet
+                    last_tweet_obj = Tweet.query.filter_by(username=username).order_by(Tweet.created_at.desc()).first()
+                    last_tweet = last_tweet_obj.created_at.isoformat() if last_tweet_obj else None
                     
-                    cursor.execute("SELECT COUNT(*) FROM tweets WHERE username = ? AND ai_processed = 1", (username,))
-                    ai_processed = cursor.fetchone()[0]
-                
-                user_stats.append({
-                    'username': username,
-                    'tweet_count': tweet_count,
-                    'last_tweet': last_tweet,
-                    'ai_processed': ai_processed
-                })
+                    # Get AI processed count
+                    ai_processed = Tweet.query.filter_by(username=username, ai_processed=True).count()
+                    
+                    user_stats.append({
+                        'username': username,
+                        'tweet_count': tweet_count,
+                        'last_tweet': last_tweet,
+                        'ai_processed': ai_processed
+                    })
+                except Exception as e:
+                    logger.error(f"Error getting stats for user {username}: {e}")
+                    user_stats.append({
+                        'username': username,
+                        'tweet_count': 0,
+                        'last_tweet': None,
+                        'ai_processed': 0
+                    })
             else:
                 user_stats.append({
                     'username': username,
