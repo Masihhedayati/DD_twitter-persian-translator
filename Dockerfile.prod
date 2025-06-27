@@ -64,11 +64,11 @@ ENV PATH=/home/appuser/.local/bin:$PATH
 ENV FLASK_ENV=production
 
 # Expose port (Koyeb will set PORT environment variable)
-EXPOSE 5001
+EXPOSE 8000
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
-    CMD curl -f http://localhost:${PORT:-5001}/health || exit 1
+    CMD curl -f http://localhost:${PORT:-8000}/health || exit 1
 
-# Run with Gunicorn for production
-CMD ["gunicorn", "--bind", "0.0.0.0:5001", "--workers", "2", "--threads", "4", "--timeout", "120", "app:app"] 
+# Run with Gunicorn for production - Use PORT environment variable or default to 8000
+CMD ["sh", "-c", "gunicorn --bind 0.0.0.0:${PORT:-8000} --workers 2 --threads 4 --timeout 120 app:app"] 
