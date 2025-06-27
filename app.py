@@ -1,5 +1,5 @@
-# Twitter Monitoring & Notification System
-# Main Flask Application
+# Twitter Monitoring & Notification System - PostgreSQL Version
+# Main Flask Application - Build 2024-12-28
 
 from flask import Flask, render_template, request, jsonify
 from flask_sqlalchemy import SQLAlchemy
