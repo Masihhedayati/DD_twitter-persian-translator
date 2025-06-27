@@ -2146,6 +2146,57 @@ def direct_database_test():
             'is_postgresql': DatabaseConfig.is_postgresql()
         }), 500
 
+@app.route('/api/users/direct')
+def get_monitored_users_direct():
+    """Get list of currently monitored users - Direct SQLAlchemy version"""
+    try:
+        # Get monitored users directly from SQLAlchemy settings
+        monitored_users_setting = Setting.query.filter_by(key='monitored_users').first()
+        if monitored_users_setting and monitored_users_setting.value:
+            users = [u.strip() for u in monitored_users_setting.value.split(',') if u.strip()]
+        else:
+            users = []
+        
+        # Get stats for each user using direct SQLAlchemy
+        user_stats = []
+        for username in users:
+            try:
+                # Get tweet count for user
+                tweet_count = Tweet.query.filter_by(username=username).count()
+                
+                # Get last tweet
+                last_tweet_obj = Tweet.query.filter_by(username=username).order_by(Tweet.created_at.desc()).first()
+                last_tweet = last_tweet_obj.created_at.isoformat() if last_tweet_obj else None
+                
+                # Get AI processed count
+                ai_processed = Tweet.query.filter_by(username=username, ai_processed=True).count()
+                
+                user_stats.append({
+                    'username': username,
+                    'tweet_count': tweet_count,
+                    'last_tweet': last_tweet,
+                    'ai_processed': ai_processed
+                })
+            except Exception as e:
+                logger.error(f"Error getting stats for user {username}: {e}")
+                user_stats.append({
+                    'username': username,
+                    'tweet_count': 0,
+                    'last_tweet': None,
+                    'ai_processed': 0,
+                    'error': str(e)
+                })
+        
+        return jsonify({
+            'users': user_stats,
+            'total_users': len(users),
+            'method': 'direct_sqlalchemy',
+            'success': True
+        })
+    except Exception as e:
+        logger.error(f"Error getting monitored users directly: {e}")
+        return jsonify({'error': str(e), 'method': 'direct_sqlalchemy'}), 500
+
 if __name__ == '__main__':
     # Ensure required directories exist
     os.makedirs('logs', exist_ok=True)
