@@ -115,17 +115,16 @@ class Setting(db.Model):
 def initialize_database():
     """Initialize database tables and default data"""
     try:
-        # Test database connection
-        if not DatabaseConfig.test_connection():
-            logger.error("Database connection test failed")
-            return False
-            
         logger.info(f"Using database: {DatabaseConfig.get_database_url()}")
         
-        # Create tables
+        # Create tables using SQLAlchemy (let it handle the connection)
         with app.app_context():
             db.create_all()
             logger.info("Database tables created successfully")
+            
+            # Test a simple query to verify the connection works
+            Setting.query.limit(1).all()
+            logger.info("Database connection verified successfully")
             
             # Initialize default monitored users if none exist
             existing_users = Setting.query.filter_by(key='monitored_users').first()
