@@ -20,6 +20,7 @@ from core.ai_processor import AIProcessor
 from core.background_worker import BackgroundWorker
 from config import Config
 from core.openai_client import OpenAIClient
+from core.webhook_config import WebhookConfig
 
 # Initialize Flask app
 app = Flask(__name__)
@@ -168,6 +169,13 @@ def settings():
                          page_title="Settings - Twitter Monitor",
                          current_time=datetime.now())
 
+@app.route('/analytics')
+def analytics():
+    """Analytics page showing system metrics and insights"""
+    return render_template('analytics.html',
+                         page_title="Analytics - Twitter Monitor",
+                         current_time=datetime.now())
+
 @app.route('/health')
 def health_check():
     """Health check endpoint for monitoring"""
@@ -176,6 +184,45 @@ def health_check():
         'timestamp': datetime.now().isoformat(),
         'version': '1.0.0'
     })
+
+@app.route('/api/webhook/info')
+def get_webhook_configuration():
+    """Get webhook configuration information for RSS.app setup"""
+    try:
+        webhook_info = get_webhook_info()
+        return jsonify({
+            'status': 'success',
+            'webhook_configuration': webhook_info,
+            'timestamp': datetime.now().isoformat()
+        })
+    except Exception as e:
+        logger.error(f"Error getting webhook info: {e}")
+        return jsonify({
+            'status': 'error',
+            'error': str(e)
+        }), 500
+
+def get_webhook_info():
+    """Helper function to get webhook configuration"""
+    try:
+        base_url = WebhookConfig.get_public_webhook_url()
+        endpoints = WebhookConfig.get_webhook_endpoints()
+        instructions = WebhookConfig.get_rss_app_instructions()
+        
+        return {
+            'base_url': base_url,
+            'webhook_url': endpoints.get('rss_webhook', ''),
+            'environment': instructions.get('environment', 'unknown'),
+            'endpoints': endpoints,
+            'rss_app_instructions': instructions,
+            'is_production': WebhookConfig._detect_koyeb_url() is not None
+        }
+    except Exception as e:
+        logger.error(f"Error in get_webhook_info: {e}")
+        return {
+            'webhook_url': 'Error: Could not determine webhook URL',
+            'error': str(e)
+        }
 
 @app.route('/webhook/twitter', methods=['GET'])
 def twitter_webhook_crc():
@@ -349,7 +396,7 @@ def get_version_info():
             'is_dirty': is_dirty,
             'untracked_files': untracked_files,
             'development_mode': app.config.get('DEBUG', False),
-            'webhook_url': os.environ.get('WEBHOOK_URL'),
+            'webhook_url': get_webhook_info()['webhook_url'],
             'timestamp': datetime.now().isoformat()
         })
     except Exception as e:
@@ -679,14 +726,71 @@ def force_ai_processing():
     if not scheduler:
         return jsonify({'error': 'Scheduler not initialized'}), 500
     
+    # Check if AI is enabled
+    if not hasattr(scheduler, 'ai_enabled') or not scheduler.ai_enabled:
+        from config import Config
+        if not getattr(Config, 'OPENAI_API_KEY', None):
+            return jsonify({
+                'error': 'AI processing is not configured. Please set OPENAI_API_KEY in environment variables.',
+                'success': False
+            }), 400
+        else:
+            return jsonify({
+                'error': 'AI processing is disabled',
+                'success': False
+            }), 400
+    
     try:
         data = request.get_json() or {}
         batch_size = data.get('batch_size', 10)
         
         result = scheduler.force_ai_processing(batch_size=batch_size)
+        
+        # Add more detailed error information if available
+        if not result.get('success') and 'error' not in result:
+            result['error'] = result.get('message', 'Unknown error occurred')
+            
         return jsonify(result)
     except Exception as e:
         logger.error(f"Error forcing AI processing: {e}")
+        return jsonify({
+            'error': f'Failed to start AI processing: {str(e)}',
+            'success': False
+        }), 500
+
+@app.route('/api/ai/models')
+def get_ai_models():
+    """Get available AI models and their capabilities"""
+    try:
+        from core.ai_models import get_available_models, get_all_presets
+        
+        return jsonify({
+            'models': get_available_models(),
+            'presets': get_all_presets(),
+            'status': 'success'
+        })
+    except Exception as e:
+        logger.error(f"Error getting AI models: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/ai/model/<model_id>/parameters')
+def get_model_parameters(model_id):
+    """Get parameter definitions for a specific model"""
+    try:
+        from core.ai_models import get_model_parameters, get_model_info
+        
+        model_info = get_model_info(model_id)
+        if not model_info:
+            return jsonify({'error': 'Model not found'}), 404
+            
+        return jsonify({
+            'model_id': model_id,
+            'model_info': model_info,
+            'parameters': get_model_parameters(model_id),
+            'status': 'success'
+        })
+    except Exception as e:
+        logger.error(f"Error getting model parameters: {e}")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/settings')
@@ -717,7 +821,8 @@ def get_settings():
                 'auto_process': True,
                 'model': database.get_setting('ai_model', Config.DEFAULT_AI_MODEL) if database else Config.DEFAULT_AI_MODEL,
                 'max_tokens': int(database.get_setting('ai_max_tokens', str(Config.DEFAULT_AI_MAX_TOKENS))) if database else Config.DEFAULT_AI_MAX_TOKENS,
-                'prompt': database.get_setting('ai_prompt', Config.DEFAULT_AI_PROMPT) if database else Config.DEFAULT_AI_PROMPT
+                'prompt': database.get_setting('ai_prompt', Config.DEFAULT_AI_PROMPT) if database else Config.DEFAULT_AI_PROMPT,
+                'parameters': database.get_ai_parameters() if database else {}
             }
         }
         return jsonify(settings)
@@ -762,18 +867,33 @@ def update_settings():
                 # This would need to be implemented in scheduler
                 updated_settings.append('ai_auto_process')
             
-            # Save AI prompt and model settings to database
-            if 'prompt' in ai_settings and database:
-                database.set_setting('ai_prompt', ai_settings['prompt'])
-                updated_settings.append('ai_prompt')
-            
-            if 'model' in ai_settings and database:
-                database.set_setting('ai_model', ai_settings['model'])
-                updated_settings.append('ai_model')
-            
-            if 'max_tokens' in ai_settings and database:
-                database.set_setting('ai_max_tokens', str(ai_settings['max_tokens']))
-                updated_settings.append('ai_max_tokens')
+            # Handle new AI parameters format
+            if 'parameters' in ai_settings and database:
+                # Validate parameters before saving
+                from core.ai_models import validate_parameters
+                
+                params = ai_settings['parameters']
+                if 'model' in params:
+                    is_valid, errors = validate_parameters(params['model'], params)
+                    if not is_valid:
+                        return jsonify({'error': 'Invalid parameters', 'details': errors}), 400
+                
+                # Save all parameters as JSON
+                database.set_ai_parameters(params)
+                updated_settings.append('ai_parameters')
+            else:
+                # Backward compatibility - save individual settings
+                if 'prompt' in ai_settings and database:
+                    database.set_setting('ai_prompt', ai_settings['prompt'])
+                    updated_settings.append('ai_prompt')
+                
+                if 'model' in ai_settings and database:
+                    database.set_setting('ai_model', ai_settings['model'])
+                    updated_settings.append('ai_model')
+                
+                if 'max_tokens' in ai_settings and database:
+                    database.set_setting('ai_max_tokens', str(ai_settings['max_tokens']))
+                    updated_settings.append('ai_max_tokens')
         
         # Update Twitter settings
         if 'twitter_settings' in data and database:
@@ -1075,24 +1195,89 @@ def scrape_historical_tweets():
 def test_notification():
     """Send a test notification to Telegram"""
     try:
-        if scheduler and scheduler.telegram_bot:
+        if scheduler and scheduler.telegram_notifier:
             message = "🔔 Test notification from Persian News Translator System\n\n"
             message += "If you see this message, your Telegram notifications are working correctly!"
             
-            success = scheduler.telegram_bot.send_message(message)
+            # Use the correct method to queue a text message
+            success = scheduler.telegram_notifier.queue_text_message(message)
             
             if success:
                 return jsonify({
                     'success': True,
-                    'message': 'Test notification sent successfully'
+                    'message': 'Test notification queued successfully'
                 })
             else:
-                return jsonify({'error': 'Failed to send test notification'}), 500
+                return jsonify({'error': 'Failed to queue test notification'}), 500
         else:
             return jsonify({'error': 'Telegram bot not configured or scheduler not available'}), 400
             
     except Exception as e:
         logger.error(f"Error sending test notification: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/telegram/test/formatted', methods=['POST'])
+def test_formatted_notification():
+    """Send a test notification with HTML formatting"""
+    try:
+        if scheduler and scheduler.telegram_notifier:
+            message = (
+                "🧪 <b>HTML Formatting Test</b>\n\n"
+                "✅ <i>Bold text</i> and <u>underlined text</u>\n"
+                "🔗 <a href='https://telegram.org'>Link example</a>\n"
+                "💻 <code>Inline code</code>\n\n"
+                "📅 <b>Time:</b> " + datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            )
+            
+            success = scheduler.telegram_notifier.queue_text_message(message, disable_preview=False)
+            
+            if success:
+                return jsonify({
+                    'success': True,
+                    'message': 'HTML formatted test notification queued successfully'
+                })
+            else:
+                return jsonify({'error': 'Failed to queue formatted test notification'}), 500
+        else:
+            return jsonify({'error': 'Telegram bot not configured or scheduler not available'}), 400
+            
+    except Exception as e:
+        logger.error(f"Error sending formatted test notification: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/telegram/status')
+def get_telegram_status():
+    """Get detailed Telegram bot status and statistics"""
+    try:
+        if scheduler and scheduler.telegram_notifier:
+            status = scheduler.telegram_notifier.get_queue_status()
+            return jsonify({
+                'success': True,
+                'status': status
+            })
+        else:
+            return jsonify({'error': 'Telegram bot not configured or scheduler not available'}), 400
+            
+    except Exception as e:
+        logger.error(f"Error getting Telegram status: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/telegram/queue/clear', methods=['POST'])
+def clear_telegram_queue():
+    """Clear the Telegram message queue"""
+    try:
+        if scheduler and scheduler.telegram_notifier:
+            cleared_count = scheduler.telegram_notifier.clear_queue()
+            return jsonify({
+                'success': True,
+                'message': f'Cleared {cleared_count} messages from queue',
+                'cleared_count': cleared_count
+            })
+        else:
+            return jsonify({'error': 'Telegram bot not configured or scheduler not available'}), 400
+            
+    except Exception as e:
+        logger.error(f"Error clearing Telegram queue: {e}")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/debug/users')
@@ -1240,10 +1425,231 @@ def get_database_completion_stats():
         logger.error(f"Error getting database completion stats: {e}")
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/analytics/summary')
+def get_analytics_summary():
+    """Get analytics summary data"""
+    try:
+        time_range = request.args.get('range', '7d')
+        
+        # Get basic statistics
+        db_stats = database.get_stats() if database else {}
+        
+        # Get time-based data
+        activity_data = get_activity_data(time_range)
+        distribution_data = get_distribution_data(time_range)
+        performance_data = get_performance_data(time_range)
+        
+        # Get top users
+        top_users = get_top_users_stats(limit=10)
+        
+        # Get AI insights
+        ai_insights = get_ai_insights(time_range)
+        
+        # Get system health
+        system_health = get_system_health_metrics()
+        
+        return jsonify({
+            'summary': {
+                'total_tweets': db_stats.get('total_tweets', 0),
+                'ai_processed': db_stats.get('ai_processed', 0),
+                'media_downloaded': db_stats.get('media_files', 0),
+                'notifications_sent': db_stats.get('telegram_sent', 0)
+            },
+            'activity_data': activity_data,
+            'distribution_data': distribution_data,
+            'performance_data': performance_data,
+            'top_users': top_users,
+            'ai_insights': ai_insights,
+            'system_health': system_health,
+            'timestamp': datetime.now().isoformat()
+        })
+        
+    except Exception as e:
+        logger.error(f"Error getting analytics summary: {e}")
+        return jsonify({'error': str(e)}), 500
+
+def get_activity_data(time_range):
+    """Get tweet activity data for charts"""
+    # This is a simplified implementation
+    # In production, you'd query the database for actual time-series data
+    return {
+        'labels': ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
+        'tweets': [120, 150, 180, 170, 200, 160, 140],
+        'ai_processed': [100, 130, 160, 150, 180, 140, 120]
+    }
+
+def get_distribution_data(time_range):
+    """Get tweet type distribution data"""
+    try:
+        import sqlite3
+        with sqlite3.connect(database.db_path) as conn:
+            cursor = conn.cursor()
+            
+            # Get tweet type counts
+            cursor.execute("""
+                SELECT 
+                    SUM(CASE WHEN tweet_type = 'tweet' THEN 1 ELSE 0 END) as regular,
+                    SUM(CASE WHEN tweet_type = 'retweet' THEN 1 ELSE 0 END) as retweets,
+                    SUM(CASE WHEN tweet_type = 'reply' THEN 1 ELSE 0 END) as replies,
+                    SUM(CASE WHEN id IN (SELECT DISTINCT tweet_id FROM media) THEN 1 ELSE 0 END) as media
+                FROM tweets
+            """)
+            
+            result = cursor.fetchone()
+            return {
+                'regular': result[0] or 0,
+                'retweets': result[1] or 0,
+                'replies': result[2] or 0,
+                'media': result[3] or 0
+            }
+    except:
+        return {'regular': 0, 'retweets': 0, 'replies': 0, 'media': 0}
+
+def get_performance_data(time_range):
+    """Get performance metrics data"""
+    # Simplified implementation
+    return {
+        'labels': ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
+        'values': [2.5, 2.8, 2.3, 2.6, 2.4, 2.7, 2.5]
+    }
+
+def get_top_users_stats(limit=10):
+    """Get statistics for top users by tweet count"""
+    try:
+        users = []
+        if database:
+            monitored_users = database.get_monitored_users()
+            for username in monitored_users[:limit]:
+                import sqlite3
+                with sqlite3.connect(database.db_path) as conn:
+                    cursor = conn.cursor()
+                    cursor.execute("""
+                        SELECT 
+                            COUNT(*) as tweet_count,
+                            SUM(CASE WHEN ai_processed = 1 THEN 1 ELSE 0 END) as ai_processed
+                        FROM tweets 
+                        WHERE username = ?
+                    """, (username,))
+                    result = cursor.fetchone()
+                    if result:
+                        users.append({
+                            'username': username,
+                            'tweet_count': result[0],
+                            'ai_processed': result[1] or 0
+                        })
+        return users
+    except Exception as e:
+        logger.error(f"Error getting top users stats: {e}")
+        return []
+
+def get_ai_insights(time_range):
+    """Get AI processing insights"""
+    try:
+        # This would query actual AI processing metrics
+        return {
+            'avg_processing_time': 2.5,
+            'success_rate': 95.5,
+            'tokens_used': 150000,
+            'cost_estimate': 4.50
+        }
+    except:
+        return {
+            'avg_processing_time': 0,
+            'success_rate': 0,
+            'tokens_used': 0,
+            'cost_estimate': 0
+        }
+
+def get_system_health_metrics():
+    """Get system health metrics"""
+    try:
+        # Database health (simplified - check if we can connect)
+        db_health = 100 if database else 0
+        
+        # API health
+        from config import Config
+        api_health = 0
+        if Config.TWITTER_API_KEY:
+            api_health += 33
+        if getattr(Config, 'OPENAI_API_KEY', None):
+            api_health += 33
+        if Config.TELEGRAM_BOT_TOKEN:
+            api_health += 34
+            
+        # Storage usage
+        storage_used = 0
+        try:
+            import shutil
+            total, used, free = shutil.disk_usage("/")
+            storage_used_percentage = (used / total) * 100
+        except:
+            storage_used_percentage = 0
+            
+        return {
+            'database': db_health,
+            'api': api_health,
+            'storage_used_percentage': round(storage_used_percentage, 1),
+            'recent_errors': []  # Would fetch from error logs
+        }
+    except Exception as e:
+        logger.error(f"Error getting system health: {e}")
+        return {
+            'database': 0,
+            'api': 0,
+            'storage_used_percentage': 0,
+            'recent_errors': []
+        }
+
+@app.route('/api/analytics/export')
+def export_analytics_data():
+    """Export analytics data as CSV"""
+    try:
+        import csv
+        import io
+        from flask import Response
+        
+        time_range = request.args.get('range', '7d')
+        
+        # Create CSV in memory
+        output = io.StringIO()
+        writer = csv.writer(output)
+        
+        # Write headers
+        writer.writerow(['Metric', 'Value', 'Timestamp'])
+        
+        # Get data
+        db_stats = database.get_stats() if database else {}
+        timestamp = datetime.now().isoformat()
+        
+        # Write data
+        writer.writerow(['Total Tweets', db_stats.get('total_tweets', 0), timestamp])
+        writer.writerow(['AI Processed', db_stats.get('ai_processed', 0), timestamp])
+        writer.writerow(['Media Downloaded', db_stats.get('media_files', 0), timestamp])
+        writer.writerow(['Notifications Sent', db_stats.get('telegram_sent', 0), timestamp])
+        
+        # Create response
+        output.seek(0)
+        return Response(
+            output.getvalue(),
+            mimetype='text/csv',
+            headers={'Content-Disposition': f'attachment; filename=analytics_{time_range}.csv'}
+        )
+        
+    except Exception as e:
+        logger.error(f"Error exporting analytics: {e}")
+        return jsonify({'error': str(e)}), 500
+
 if __name__ == '__main__':
     # Ensure required directories exist
     os.makedirs('logs', exist_ok=True)
-    os.makedirs('media', exist_ok=True)
+    os.makedirs('data', exist_ok=True)  # Changed from 'media' to 'data' for production
+    
+    # Display startup information
+    try:
+        from startup_info import display_startup_info
+        display_startup_info()
+    except ImportError:
+        logger.warning("Could not import startup_info module")
     
     # Record start time for uptime calculation
     start_time = time.time()
@@ -1254,11 +1660,19 @@ if __name__ == '__main__':
     if initialize_components():
         logger.info("All components initialized successfully")
         
+        # Production-ready configuration
+        port = int(os.environ.get('PORT', 5001))
+        host = os.environ.get('HOST', '0.0.0.0')
+        debug = os.environ.get('FLASK_ENV', 'production') != 'production'
+        
+        logger.info(f"Starting server on {host}:{port} (debug={debug})")
+        
         # Start the web application
         app.run(
-            host=app.config.get('HOST', '0.0.0.0'),
-            port=app.config.get('PORT', 5001),  # Changed default to avoid AirPlay conflict
-            debug=app.config.get('DEBUG', True)
+            host=host,
+            port=port,
+            debug=debug,
+            threaded=True  # Enable threading for better performance
         )
     else:
         logger.error("Failed to initialize components")

@@ -2,13 +2,24 @@
 import os
 from datetime import timedelta
 
+def parse_int_env(key, default):
+    """Safely parse integer environment variables, handling comments"""
+    value = os.environ.get(key, str(default))
+    if isinstance(value, str):
+        # Strip comments if present (anything after #)
+        value = value.split('#')[0].strip()
+    try:
+        return int(value)
+    except (ValueError, TypeError):
+        return default
+
 class Config:
     """Base configuration class"""
     
     # Flask Configuration
     SECRET_KEY = os.environ.get('SECRET_KEY') or 'dev-secret-key-change-in-production'
     HOST = os.environ.get('HOST', '0.0.0.0')
-    PORT = int(os.environ.get('PORT', 5001))
+    PORT = parse_int_env('PORT', 5001)
     DEBUG = os.environ.get('DEBUG', 'False').lower() == 'true'
     
     # Database Configuration
@@ -25,13 +36,13 @@ class Config:
     TWITTER_WEBHOOK_SECRET = os.environ.get('TWITTER_WEBHOOK_SECRET')
     WEBHOOK_ONLY_MODE = os.environ.get('WEBHOOK_ONLY_MODE', 'false').lower() == 'true'
     HYBRID_MODE = os.environ.get('HYBRID_MODE', 'true').lower() == 'true'  # Initial scrape + webhooks
-    HISTORICAL_HOURS = int(os.environ.get('HISTORICAL_HOURS', 2))  # Hours to look back
+    HISTORICAL_HOURS = parse_int_env('HISTORICAL_HOURS', 2)  # Hours to look back
     WEBHOOK_URL = os.environ.get('WEBHOOK_URL')  # Your public webhook URL
     
     # OpenAI Configuration
     OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY')
-    OPENAI_MODEL = os.environ.get('OPENAI_MODEL', 'o1-mini')
-    OPENAI_MAX_TOKENS = int(os.environ.get('OPENAI_MAX_TOKENS', 1000))
+    OPENAI_MODEL = os.environ.get('OPENAI_MODEL', 'gpt-4o')  # Updated default to GPT-4o
+    OPENAI_MAX_TOKENS = parse_int_env('OPENAI_MAX_TOKENS', 1000)
     
     # Telegram Configuration
     TELEGRAM_BOT_TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN')
@@ -41,7 +52,7 @@ class Config:
     NOTIFICATION_ENABLED = os.environ.get('NOTIFICATION_ENABLED', 'true').lower() == 'true'
     NOTIFY_ALL_TWEETS = os.environ.get('NOTIFY_ALL_TWEETS', 'false').lower() == 'true'
     NOTIFY_AI_PROCESSED_ONLY = os.environ.get('NOTIFY_AI_PROCESSED_ONLY', 'true').lower() == 'true'
-    NOTIFICATION_DELAY = int(os.environ.get('NOTIFICATION_DELAY', 10))
+    NOTIFICATION_DELAY = parse_int_env('NOTIFICATION_DELAY', 10)
     
     # Monitoring Configuration
     # MONITORED_USERS is now managed dynamically through the database
@@ -50,19 +61,19 @@ class Config:
     
     # Media Storage Configuration
     MEDIA_STORAGE_PATH = os.environ.get('MEDIA_STORAGE_PATH', './media')
-    MAX_MEDIA_SIZE = int(os.environ.get('MAX_MEDIA_SIZE', 104857600))  # 100MB in bytes
-    MEDIA_RETENTION_DAYS = int(os.environ.get('MEDIA_RETENTION_DAYS', 90))
+    MAX_MEDIA_SIZE = parse_int_env('MAX_MEDIA_SIZE', 104857600)  # 100MB in bytes
+    MEDIA_RETENTION_DAYS = parse_int_env('MEDIA_RETENTION_DAYS', 90)
     
     # Processing Configuration
-    MAX_CONCURRENT_DOWNLOADS = int(os.environ.get('MAX_CONCURRENT_DOWNLOADS', 5))
-    DOWNLOAD_TIMEOUT = int(os.environ.get('DOWNLOAD_TIMEOUT', 30))  # seconds
-    MAX_RETRY_ATTEMPTS = int(os.environ.get('MAX_RETRY_ATTEMPTS', 3))
+    MAX_CONCURRENT_DOWNLOADS = parse_int_env('MAX_CONCURRENT_DOWNLOADS', 5)
+    DOWNLOAD_TIMEOUT = parse_int_env('DOWNLOAD_TIMEOUT', 30)  # seconds
+    MAX_RETRY_ATTEMPTS = parse_int_env('MAX_RETRY_ATTEMPTS', 3)
     
     # AI Processing Configuration
     DEFAULT_AI_PROMPT = os.environ.get('DEFAULT_AI_PROMPT', 
         'Persian News Translator & Formatter - Translate English breaking news to Persian for Telegram channels.')
-    DEFAULT_AI_MODEL = os.environ.get('DEFAULT_AI_MODEL', 'o1-mini')
-    DEFAULT_AI_MAX_TOKENS = int(os.environ.get('DEFAULT_AI_MAX_TOKENS', 1000))
+    DEFAULT_AI_MODEL = os.environ.get('DEFAULT_AI_MODEL', 'gpt-4o')  # Updated default to GPT-4o
+    DEFAULT_AI_MAX_TOKENS = parse_int_env('DEFAULT_AI_MAX_TOKENS', 1000)
     
     @staticmethod
     def validate_required_config():

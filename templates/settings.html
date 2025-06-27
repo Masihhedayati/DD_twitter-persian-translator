@@ -253,16 +253,28 @@
                             
                             <div class="mb-3">
                                 <label for="aiModel" class="form-label">AI Model
-                                    <i class="bi bi-info-circle help-tooltip" data-bs-toggle="tooltip" data-bs-placement="top" title="GPT-4o is recommended for Persian translation. GPT-4o Mini is faster and cheaper for simple tasks."></i>
+                                    <i class="bi bi-info-circle help-tooltip" data-bs-toggle="tooltip" data-bs-placement="top" title="Different models have different capabilities and parameters. O1 models are best for reasoning, GPT-4o for general tasks."></i>
                                 </label>
-                                <select class="form-select" id="aiModel">
-                                    <option value="gpt-3.5-turbo">GPT-3.5 Turbo (Recommended)</option>
-                                    <option value="gpt-4">GPT-4 (Higher quality, slower)</option>
-                                    <option value="gpt-4-turbo">GPT-4 Turbo</option>
-                                    <option value="gpt-4o">GPT-4o (Latest)</option>
-                                    <option value="gpt-4o-mini">GPT-4o Mini (Fast & cheap)</option>
-                                </select>
-                                <div class="form-text">Choose the OpenAI model for tweet analysis</div>
+                                <div class="input-group">
+                                    <select class="form-select" id="aiModel" onchange="updateModelParameters()">
+                                        <!-- Models will be loaded dynamically -->
+                                    </select>
+                                    <button class="btn btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                                        <i class="bi bi-lightning"></i> Presets
+                                    </button>
+                                    <ul class="dropdown-menu dropdown-menu-end" id="presetDropdown">
+                                        <!-- Presets will be loaded dynamically -->
+                                    </ul>
+                                </div>
+                                <div class="form-text" id="modelDescription">Select a model to see its description</div>
+                            </div>
+                            
+                            <!-- Dynamic Parameters Section -->
+                            <div id="dynamicParameters" class="border rounded p-3 mb-3" style="display: none;">
+                                <h6 class="mb-3"><i class="bi bi-sliders"></i> Model Parameters</h6>
+                                <div id="parameterControls">
+                                    <!-- Dynamic parameter controls will be inserted here -->
+                                </div>
                             </div>
                             
                             <div class="mb-3 advanced-setting" style="display: none;">
@@ -273,14 +285,30 @@
                                 <div class="form-text">Maximum tokens for AI response (50-1000)</div>
                             </div>
                             
+                            <!-- Prompt Templates Section -->
                             <div class="mb-3">
-                                <label for="aiPrompt" class="form-label">AI Analysis Prompt
-                                    <i class="bi bi-info-circle help-tooltip" data-bs-toggle="tooltip" data-bs-placement="top" title="Instructions for the AI on how to analyze tweets. Customize for translation, sentiment analysis, or summarization."></i>
+                                <label class="form-label">Prompt Configuration
+                                    <i class="bi bi-info-circle help-tooltip" data-bs-toggle="tooltip" data-bs-placement="top" title="Configure system and user prompts separately for better control over AI behavior."></i>
                                 </label>
-                                <textarea class="form-control" id="aiPrompt" rows="4" placeholder="Enter your custom prompt for AI tweet analysis...">Analyze this tweet and provide a brief summary of its key points and sentiment.</textarea>
-                                <div class="form-text">
-                                    Customize how AI analyzes tweets. You can include instructions for:
-                                    <br>• Sentiment analysis • Topic extraction • Summary generation • Translation
+                                
+                                <!-- System Prompt -->
+                                <div class="mb-2">
+                                    <label for="aiSystemPrompt" class="form-label text-muted small">System Prompt (Sets AI behavior)</label>
+                                    <textarea class="form-control" id="aiSystemPrompt" rows="3" placeholder="System instructions for AI behavior...">You are a professional translator and news analyst.</textarea>
+                                    <div class="form-text">Define the AI's role and behavior</div>
+                                </div>
+                                
+                                <!-- User Prompt -->
+                                <div class="mb-2">
+                                    <label for="aiUserPrompt" class="form-label text-muted small">User Prompt Template</label>
+                                    <textarea class="form-control" id="aiUserPrompt" rows="3" placeholder="User message template with {tweet_content} placeholder...">Analyze this tweet and provide insights: {tweet_content}</textarea>
+                                    <div class="form-text">Use {tweet_content} as placeholder for the tweet text</div>
+                                </div>
+                                
+                                <!-- Legacy single prompt for backward compatibility -->
+                                <div class="mb-2 d-none" id="legacyPromptDiv">
+                                    <label for="aiPrompt" class="form-label text-muted small">Combined Prompt (Legacy)</label>
+                                    <textarea class="form-control" id="aiPrompt" rows="4"></textarea>
                                 </div>
                             </div>
                             
@@ -317,6 +345,41 @@
                     </div>
                     <div class="card-body">
                         <form id="notificationSettingsForm">
+                            <!-- Bot Configuration Section -->
+                            <h6 class="mb-3"><i class="bi bi-robot"></i> Bot Configuration</h6>
+                            <div class="row mb-3">
+                                <div class="col-md-6">
+                                    <label for="telegramBotToken" class="form-label">Bot Token</label>
+                                    <input type="password" class="form-control" id="telegramBotToken" placeholder="1234567890:ABC...">
+                                    <div class="form-text">Get from @BotFather on Telegram</div>
+                                </div>
+                                <div class="col-md-6">
+                                    <label for="telegramChatId" class="form-label">Chat ID</label>
+                                    <div class="input-group">
+                                        <input type="text" class="form-control" id="telegramChatId" placeholder="-1001234567890">
+                                        <button class="btn btn-outline-info" type="button" onclick="validateTelegramConfig()">
+                                            <i class="bi bi-check-circle"></i> Validate
+                                        </button>
+                                    </div>
+                                    <div class="form-text">Channel or chat ID for notifications</div>
+                                </div>
+                            </div>
+                            
+                            <!-- Bot Info Display -->
+                            <div id="botInfoDisplay" class="alert alert-success" style="display:none;">
+                                <div class="d-flex align-items-center">
+                                    <i class="bi bi-check-circle-fill me-2"></i>
+                                    <div>
+                                        <strong>Bot Connected:</strong> <span id="botUsername">@username</span><br>
+                                        <small class="text-muted">Name: <span id="botName">Bot Name</span></small>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <hr class="my-4">
+                            
+                            <!-- Notification Settings -->
+                            <h6 class="mb-3"><i class="bi bi-bell"></i> Notification Settings</h6>
                             <div class="mb-3">
                                 <div class="form-check form-switch">
                                     <input class="form-check-input" type="checkbox" id="notificationsEnabled">
@@ -352,15 +415,90 @@
                                 <div class="form-text">Delay before sending notifications (0-300 seconds)</div>
                             </div>
                             
-                            <div class="d-flex gap-2">
+                            <hr class="my-4">
+                            
+                            <!-- Message Formatting -->
+                            <h6 class="mb-3"><i class="bi bi-chat-text"></i> Message Formatting</h6>
+                            <div class="row mb-3">
+                                <div class="col-md-6">
+                                    <div class="form-check form-switch mb-2">
+                                        <input class="form-check-input" type="checkbox" id="enableHtmlFormatting">
+                                        <label class="form-check-label" for="enableHtmlFormatting">
+                                            Enable HTML formatting
+                                        </label>
+                                    </div>
+                                    <div class="form-check form-switch mb-2">
+                                        <input class="form-check-input" type="checkbox" id="enableMediaGrouping">
+                                        <label class="form-check-label" for="enableMediaGrouping">
+                                            Group multiple media
+                                        </label>
+                                    </div>
+                                    <div class="form-check form-switch">
+                                        <input class="form-check-input" type="checkbox" id="disableLinkPreview">
+                                        <label class="form-check-label" for="disableLinkPreview">
+                                            Disable link previews
+                                        </label>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <label for="messageInterval" class="form-label">Message Interval</label>
+                                    <div class="input-group mb-2">
+                                        <input type="number" class="form-control" id="messageInterval" min="1" max="60" value="1">
+                                        <span class="input-group-text">seconds</span>
+                                    </div>
+                                    <div class="form-text">Rate limiting between messages</div>
+                                </div>
+                            </div>
+                            
+                            <hr class="my-4">
+                            
+                            <!-- Queue Status -->
+                            <h6 class="mb-3"><i class="bi bi-list-check"></i> Queue Status</h6>
+                            <div class="row mb-3">
+                                <div class="col-md-3">
+                                    <div class="text-center p-2 border rounded">
+                                        <div class="h5 mb-1" id="queueSize">0</div>
+                                        <small class="text-muted">Queued</small>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <div class="text-center p-2 border rounded">
+                                        <div class="h5 mb-1" id="messagesSent">0</div>
+                                        <small class="text-muted">Sent Today</small>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <div class="text-center p-2 border rounded">
+                                        <div class="h5 mb-1" id="messagesFailed">0</div>
+                                        <small class="text-muted">Failed</small>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <div class="text-center p-2 border rounded">
+                                        <div class="h5 mb-1" id="successRate">100%</div>
+                                        <small class="text-muted">Success Rate</small>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="d-flex flex-wrap gap-2">
                                 <button type="button" class="btn btn-sm btn-outline-primary" onclick="testNotification(event)">
-                                    <i class="bi bi-send"></i> Test Notification
+                                    <i class="bi bi-send"></i> Test Basic
+                                </button>
+                                <button type="button" class="btn btn-sm btn-outline-info" onclick="testFormattedMessage(event)">
+                                    <i class="bi bi-code"></i> Test HTML
+                                </button>
+                                <button type="button" class="btn btn-sm btn-outline-secondary" onclick="clearTelegramQueue(event)">
+                                    <i class="bi bi-trash"></i> Clear Queue
                                 </button>
                                 <button type="button" class="btn btn-sm btn-outline-warning" onclick="pauseNotifications(event)">
                                     <i class="bi bi-pause"></i> Pause
                                 </button>
                                 <button type="button" class="btn btn-sm btn-outline-success" onclick="resumeNotifications(event)">
                                     <i class="bi bi-play"></i> Resume
+                                </button>
+                                <button type="button" class="btn btn-sm btn-outline-info" onclick="refreshTelegramStatus()">
+                                    <i class="bi bi-arrow-clockwise"></i> Refresh Status
                                 </button>
                             </div>
                         </form>
@@ -482,4 +620,53 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 });
 </script>
+<style>
+/* Dynamic parameter controls styling */
+.parameter-control {
+    margin-bottom: 1rem;
+}
+
+.parameter-control label {
+    font-size: 0.9rem;
+    font-weight: 500;
+}
+
+.parameter-control .form-text {
+    font-size: 0.8rem;
+    color: #6c757d;
+}
+
+.parameter-slider {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+.parameter-slider input[type="range"] {
+    flex: 1;
+}
+
+.parameter-value {
+    min-width: 50px;
+    text-align: center;
+    font-weight: 500;
+}
+
+#dynamicParameters {
+    background-color: #f8f9fa;
+}
+
+.preset-item {
+    cursor: pointer;
+}
+
+.preset-item:hover {
+    background-color: #f8f9fa;
+}
+
+.model-badge {
+    font-size: 0.75rem;
+    margin-left: 0.5rem;
+}
+</style>
 {% endblock %}

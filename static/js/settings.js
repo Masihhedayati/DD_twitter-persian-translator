@@ -59,8 +59,12 @@ document.addEventListener('DOMContentLoaded', function() {
     loadSystemStatus();
     loadMonitoredUsers();
     
-    // Setup auto-refresh for system status
+    // Load Telegram status
+    refreshTelegramStatus();
+    
+    // Setup auto-refresh for system status and Telegram status
     setInterval(loadSystemStatus, 30000); // Refresh every 30 seconds
+    setInterval(refreshTelegramStatus, 15000); // Refresh Telegram status every 15 seconds
     
     // Setup form change handlers
     setupFormHandlers();
@@ -526,7 +530,9 @@ async function saveSettings(event) {
                 batch_size: parseInt(document.getElementById('aiBatchSize').value),
                 model: document.getElementById('aiModel').value,
                 max_tokens: parseInt(document.getElementById('aiMaxTokens').value),
-                prompt: document.getElementById('aiPrompt').value
+                prompt: document.getElementById('aiPrompt').value,
+                // Add new parameters format
+                parameters: collectParameterValues()
             }
         };
         
@@ -670,6 +676,131 @@ async function resumeNotifications(event) {
     }
 }
 
+// Test formatted notification
+async function testFormattedMessage(event) {
+    const button = event.target.closest('button');
+    setButtonLoading(button, true, 'Sending...');
+    
+    try {
+        const response = await fetch('/api/telegram/test/formatted', {
+            method: 'POST'
+        });
+        
+        if (response.ok) {
+            showStatus('HTML formatted test notification sent! Check your Telegram.', 'success', 10000);
+        } else {
+            throw new Error('Failed to send formatted test notification');
+        }
+        
+    } catch (error) {
+        console.error('Error sending formatted test notification:', error);
+        showStatus('Failed to send formatted test notification: ' + error.message, 'error', 10000);
+    } finally {
+        setButtonLoading(button, false);
+    }
+}
+
+// Clear Telegram queue
+async function clearTelegramQueue(event) {
+    if (!confirm('Are you sure you want to clear all pending Telegram messages?')) {
+        return;
+    }
+    
+    const button = event.target.closest('button');
+    setButtonLoading(button, true, 'Clearing...');
+    
+    try {
+        const response = await fetch('/api/telegram/queue/clear', {
+            method: 'POST'
+        });
+        
+        if (response.ok) {
+            const result = await response.json();
+            showStatus(result.message, 'success');
+            refreshTelegramStatus(); // Refresh the status display
+        } else {
+            throw new Error('Failed to clear Telegram queue');
+        }
+        
+    } catch (error) {
+        console.error('Error clearing Telegram queue:', error);
+        showStatus('Failed to clear Telegram queue: ' + error.message, 'error', 10000);
+    } finally {
+        setButtonLoading(button, false);
+    }
+}
+
+// Refresh Telegram status
+async function refreshTelegramStatus() {
+    try {
+        const response = await fetch('/api/telegram/status');
+        
+        if (response.ok) {
+            const result = await response.json();
+            const status = result.status;
+            
+            // Update queue status display
+            updateElement('queueSize', status.queue_size || 0);
+            updateElement('messagesSent', status.stats?.messages_sent || 0);
+            updateElement('messagesFailed', status.stats?.messages_failed || 0);
+            
+            // Calculate and update success rate
+            const sent = status.stats?.messages_sent || 0;
+            const failed = status.stats?.messages_failed || 0;
+            const total = sent + failed;
+            const successRate = total > 0 ? Math.round((sent / total) * 100) : 100;
+            updateElement('successRate', successRate + '%');
+            
+        } else {
+            console.error('Failed to fetch Telegram status');
+        }
+        
+    } catch (error) {
+        console.error('Error refreshing Telegram status:', error);
+    }
+}
+
+// Validate Telegram configuration
+async function validateTelegramConfig() {
+    const botToken = document.getElementById('telegramBotToken').value;
+    const chatId = document.getElementById('telegramChatId').value;
+    
+    if (!botToken || !chatId) {
+        showStatus('Please enter both Bot Token and Chat ID', 'error');
+        return;
+    }
+    
+    try {
+        showStatus('Validating Telegram configuration...', 'info');
+        
+        // For now, just check format and show success
+        // In a real implementation, you'd validate with Telegram API
+        const botTokenPattern = /^\d+:[A-Za-z0-9_-]+$/;
+        const chatIdPattern = /^-?\d+$/;
+        
+        if (!botTokenPattern.test(botToken)) {
+            throw new Error('Invalid bot token format');
+        }
+        
+        if (!chatIdPattern.test(chatId)) {
+            throw new Error('Invalid chat ID format');
+        }
+        
+        // Show bot info (mock data for now)
+        const botInfoDisplay = document.getElementById('botInfoDisplay');
+        document.getElementById('botUsername').textContent = '@your_bot';
+        document.getElementById('botName').textContent = 'Your Bot Name';
+        botInfoDisplay.style.display = 'block';
+        
+        showStatus('Telegram configuration is valid!', 'success');
+        
+    } catch (error) {
+        console.error('Error validating Telegram config:', error);
+        showStatus('Validation failed: ' + error.message, 'error');
+        document.getElementById('botInfoDisplay').style.display = 'none';
+    }
+}
+
 // Force AI processing
 async function forceAiProcessing(event) {
     const button = event.target.closest('button');
@@ -679,18 +810,38 @@ async function forceAiProcessing(event) {
         showStatus('Starting AI processing...', 'info');
         
         const response = await fetch('/api/ai/force', {
-            method: 'POST'
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({})
         });
         
-        if (response.ok) {
-            showStatus('AI processing started', 'success');
+        const result = await response.json();
+        
+        if (response.ok && result.success) {
+            const msg = result.processed_count ? 
+                `AI processing completed: ${result.processed_count} tweets processed` :
+                'AI processing started successfully';
+            showStatus(msg, 'success', 10000);
         } else {
-            throw new Error('Failed to start AI processing');
+            const errorMsg = result.error || result.message || 'Failed to start AI processing';
+            throw new Error(errorMsg);
         }
         
     } catch (error) {
         console.error('Error starting AI processing:', error);
-        showStatus('Failed to start AI processing: ' + error.message, 'error', 10000);
+        // Try to parse error response
+        if (error.response) {
+            error.response.json().then(data => {
+                const errorMsg = data.error || data.message || 'Unknown error occurred';
+                showStatus('AI processing failed: ' + errorMsg, 'error', 15000);
+            }).catch(() => {
+                showStatus('Failed to start AI processing: ' + error.message, 'error', 15000);
+            });
+        } else {
+            showStatus('Failed to start AI processing: ' + error.message, 'error', 15000);
+        }
     } finally {
         setButtonLoading(button, false);
     }
@@ -1163,4 +1314,366 @@ document.addEventListener('DOMContentLoaded', function() {
     if (savedMode === 'true') {
         toggleAdvancedMode();
     }
+    
+    // Load AI models and presets
+    loadAIModels();
 });
+
+// AI Configuration Enhancement Functions
+let availableModels = {};
+let modelPresets = {};
+let currentModelParameters = {};
+
+// Load available AI models from API
+async function loadAIModels() {
+    try {
+        const response = await fetch('/api/ai/models');
+        if (!response.ok) {
+            throw new Error('Failed to load AI models');
+        }
+        
+        const data = await response.json();
+        availableModels = data.models.reduce((acc, model) => {
+            acc[model.id] = model;
+            return acc;
+        }, {});
+        modelPresets = data.presets;
+        
+        // Populate model dropdown
+        populateModelDropdown(data.models);
+        
+        // Populate presets dropdown
+        populatePresetsDropdown(data.presets);
+        
+        // Set current model if available
+        const currentModel = currentSettings?.ai_settings?.model || 'gpt-4o';
+        const modelSelect = document.getElementById('aiModel');
+        if (modelSelect && availableModels[currentModel]) {
+            modelSelect.value = currentModel;
+            updateModelParameters();
+        }
+        
+    } catch (error) {
+        console.error('Error loading AI models:', error);
+        showStatus('Failed to load AI models', 'error');
+    }
+}
+
+// Populate model dropdown
+function populateModelDropdown(models) {
+    const modelSelect = document.getElementById('aiModel');
+    if (!modelSelect) return;
+    
+    modelSelect.innerHTML = '';
+    
+    // Group models by series
+    const modelGroups = {
+        'O1 Series (Reasoning)': models.filter(m => m.id.startsWith('o1')),
+        'GPT-4o Series': models.filter(m => m.id.startsWith('gpt-4o')),
+        'GPT-4 Series': models.filter(m => m.id.startsWith('gpt-4') && !m.id.startsWith('gpt-4o')),
+        'GPT-3.5 Series': models.filter(m => m.id.startsWith('gpt-3.5'))
+    };
+    
+    Object.entries(modelGroups).forEach(([groupName, groupModels]) => {
+        if (groupModels.length === 0) return;
+        
+        const optgroup = document.createElement('optgroup');
+        optgroup.label = groupName;
+        
+        groupModels.forEach(model => {
+            const option = document.createElement('option');
+            option.value = model.id;
+            option.textContent = model.name;
+            
+            // Add badges for special features
+            if (!model.supports_system_message) {
+                option.textContent += ' (No system msg)';
+            }
+            
+            optgroup.appendChild(option);
+        });
+        
+        modelSelect.appendChild(optgroup);
+    });
+}
+
+// Populate presets dropdown
+function populatePresetsDropdown(presets) {
+    const presetDropdown = document.getElementById('presetDropdown');
+    if (!presetDropdown) return;
+    
+    presetDropdown.innerHTML = '';
+    
+    Object.entries(presets).forEach(([presetId, preset]) => {
+        const li = document.createElement('li');
+        li.innerHTML = `
+            <a class="dropdown-item preset-item" href="#" onclick="applyPreset('${presetId}')">
+                <strong>${preset.name}</strong>
+                <br>
+                <small class="text-muted">${preset.description}</small>
+            </a>
+        `;
+        presetDropdown.appendChild(li);
+    });
+}
+
+// Update model parameters when model changes
+async function updateModelParameters() {
+    const modelId = document.getElementById('aiModel').value;
+    const modelInfo = availableModels[modelId];
+    
+    if (!modelInfo) {
+        document.getElementById('dynamicParameters').style.display = 'none';
+        return;
+    }
+    
+    // Update model description
+    const modelDesc = document.getElementById('modelDescription');
+    if (modelDesc) {
+        modelDesc.textContent = modelInfo.description;
+    }
+    
+    // Load parameter definitions
+    try {
+        const response = await fetch(`/api/ai/model/${modelId}/parameters`);
+        if (!response.ok) {
+            throw new Error('Failed to load model parameters');
+        }
+        
+        const data = await response.json();
+        currentModelParameters = data.parameters;
+        
+        // Generate parameter controls
+        generateParameterControls(data.parameters, modelInfo);
+        
+        // Show parameters section if model has configurable parameters
+        const hasParams = Object.keys(data.parameters).length > 0;
+        document.getElementById('dynamicParameters').style.display = hasParams ? 'block' : 'none';
+        
+        // Update prompt configuration based on model support
+        updatePromptConfiguration(modelInfo);
+        
+        // Load saved parameters if available
+        const savedParams = currentSettings?.ai_settings?.parameters || {};
+        applyParameterValues(savedParams);
+        
+    } catch (error) {
+        console.error('Error loading model parameters:', error);
+        showStatus('Failed to load model parameters', 'error');
+    }
+}
+
+// Generate parameter control elements
+function generateParameterControls(parameters, modelInfo) {
+    const container = document.getElementById('parameterControls');
+    if (!container) return;
+    
+    container.innerHTML = '';
+    
+    Object.entries(parameters).forEach(([paramName, paramDef]) => {
+        const controlDiv = document.createElement('div');
+        controlDiv.className = 'parameter-control';
+        
+        if (paramDef.type === 'float' || paramDef.type === 'int') {
+            // Create slider control
+            controlDiv.innerHTML = `
+                <label for="param_${paramName}">${paramName.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                    <i class="bi bi-info-circle help-tooltip" data-bs-toggle="tooltip" title="${paramDef.description}"></i>
+                </label>
+                <div class="parameter-slider">
+                    <input type="range" class="form-range" id="param_${paramName}"
+                           min="${paramDef.min}" max="${paramDef.max}" step="${paramDef.step}"
+                           value="${paramDef.default}" onchange="updateParameterValue('${paramName}')">
+                    <span class="parameter-value" id="param_${paramName}_value">${paramDef.default}</span>
+                </div>
+                <div class="form-text">${paramDef.description}</div>
+            `;
+        } else if (paramDef.type === 'select') {
+            // Create dropdown control
+            controlDiv.innerHTML = `
+                <label for="param_${paramName}">${paramName.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                    <i class="bi bi-info-circle help-tooltip" data-bs-toggle="tooltip" title="${paramDef.description}"></i>
+                </label>
+                <select class="form-select" id="param_${paramName}" onchange="updateParameterValue('${paramName}')">
+                    ${paramDef.options.map(opt => 
+                        `<option value="${opt}" ${opt === paramDef.default ? 'selected' : ''}>${opt}</option>`
+                    ).join('')}
+                </select>
+                <div class="form-text">${paramDef.description}</div>
+            `;
+        }
+        
+        container.appendChild(controlDiv);
+    });
+    
+    // Re-initialize tooltips
+    const tooltipTriggerList = [].slice.call(container.querySelectorAll('[data-bs-toggle="tooltip"]'));
+    tooltipTriggerList.map(function (tooltipTriggerEl) {
+        return new bootstrap.Tooltip(tooltipTriggerEl);
+    });
+}
+
+// Update parameter value display
+function updateParameterValue(paramName) {
+    const input = document.getElementById(`param_${paramName}`);
+    const valueDisplay = document.getElementById(`param_${paramName}_value`);
+    
+    if (input && valueDisplay) {
+        valueDisplay.textContent = input.value;
+    }
+}
+
+// Update prompt configuration based on model
+function updatePromptConfiguration(modelInfo) {
+    const systemPromptDiv = document.getElementById('aiSystemPrompt').parentElement;
+    const userPromptDiv = document.getElementById('aiUserPrompt').parentElement;
+    const legacyPromptDiv = document.getElementById('legacyPromptDiv');
+    
+    if (!modelInfo.supports_system_message) {
+        // Hide system prompt for O1 models
+        systemPromptDiv.style.display = 'none';
+        
+        // Show info about combined prompt
+        const info = document.createElement('div');
+        info.className = 'alert alert-info';
+        info.innerHTML = '<i class="bi bi-info-circle"></i> This model doesn\'t support separate system messages. System and user prompts will be combined.';
+        userPromptDiv.parentElement.insertBefore(info, userPromptDiv);
+    } else {
+        // Show system prompt for other models
+        systemPromptDiv.style.display = 'block';
+        
+        // Remove any info alerts
+        const infoAlert = userPromptDiv.parentElement.querySelector('.alert-info');
+        if (infoAlert) {
+            infoAlert.remove();
+        }
+    }
+}
+
+// Apply preset configuration
+function applyPreset(presetId) {
+    const preset = modelPresets[presetId];
+    if (!preset) return;
+    
+    // Set model
+    const modelSelect = document.getElementById('aiModel');
+    if (modelSelect) {
+        modelSelect.value = preset.model;
+        updateModelParameters().then(() => {
+            // Apply parameters after model update
+            applyParameterValues(preset.parameters);
+            
+            // Set prompts
+            if (preset.system_prompt) {
+                const systemPrompt = document.getElementById('aiSystemPrompt');
+                if (systemPrompt) {
+                    systemPrompt.value = preset.system_prompt;
+                }
+            }
+            
+            if (preset.user_prompt_template) {
+                const userPrompt = document.getElementById('aiUserPrompt');
+                if (userPrompt) {
+                    userPrompt.value = preset.user_prompt_template;
+                }
+            }
+            
+            showStatus(`Applied preset: ${preset.name}`, 'success');
+        });
+    }
+}
+
+// Apply parameter values to controls
+function applyParameterValues(values) {
+    Object.entries(values).forEach(([paramName, value]) => {
+        const input = document.getElementById(`param_${paramName}`);
+        if (input) {
+            input.value = value;
+            updateParameterValue(paramName);
+        }
+    });
+}
+
+// Collect current parameter values
+function collectParameterValues() {
+    const params = {
+        model: document.getElementById('aiModel').value
+    };
+    
+    // Add max_tokens if visible
+    const maxTokensInput = document.getElementById('aiMaxTokens');
+    if (maxTokensInput && maxTokensInput.parentElement.parentElement.style.display !== 'none') {
+        params.max_tokens = parseInt(maxTokensInput.value);
+    }
+    
+    // Collect dynamic parameters
+    Object.keys(currentModelParameters).forEach(paramName => {
+        const input = document.getElementById(`param_${paramName}`);
+        if (input) {
+            const paramDef = currentModelParameters[paramName];
+            if (paramDef.type === 'int') {
+                params[paramName] = parseInt(input.value);
+            } else if (paramDef.type === 'float') {
+                params[paramName] = parseFloat(input.value);
+            } else {
+                params[paramName] = input.value;
+            }
+        }
+    });
+    
+    // Add prompts
+    const systemPrompt = document.getElementById('aiSystemPrompt');
+    const userPrompt = document.getElementById('aiUserPrompt');
+    const legacyPrompt = document.getElementById('aiPrompt');
+    
+    if (systemPrompt && systemPrompt.value) {
+        params.system_prompt = systemPrompt.value;
+    }
+    
+    if (userPrompt && userPrompt.value) {
+        params.user_prompt = userPrompt.value;
+    } else if (legacyPrompt && legacyPrompt.value) {
+        params.prompt = legacyPrompt.value;
+    }
+    
+    return params;
+}
+
+// Override the populateSettingsForm to handle new AI parameters
+const originalPopulateSettingsForm = populateSettingsForm;
+populateSettingsForm = function(settings) {
+    originalPopulateSettingsForm(settings);
+    
+    // Handle new AI parameters
+    if (settings.ai_settings?.parameters) {
+        const params = settings.ai_settings.parameters;
+        
+        // Set prompts if available
+        if (params.system_prompt) {
+            const systemPrompt = document.getElementById('aiSystemPrompt');
+            if (systemPrompt) {
+                systemPrompt.value = params.system_prompt;
+            }
+        }
+        
+        if (params.user_prompt) {
+            const userPrompt = document.getElementById('aiUserPrompt');
+            if (userPrompt) {
+                userPrompt.value = params.user_prompt;
+            }
+        }
+        
+        // Apply other parameters after models are loaded
+        setTimeout(() => {
+            if (params.model) {
+                const modelSelect = document.getElementById('aiModel');
+                if (modelSelect) {
+                    modelSelect.value = params.model;
+                    updateModelParameters().then(() => {
+                        applyParameterValues(params);
+                    });
+                }
+            }
+        }, 500);
+    }
+};

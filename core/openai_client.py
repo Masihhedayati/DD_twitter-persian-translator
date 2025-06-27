@@ -136,11 +136,28 @@ Please translate the following content according to the above rules.
         """Get current AI settings from database or use defaults"""
         if self.database:
             from config import Config
-            return {
-                'model': self.database.get_setting('ai_model', self.model),
-                'max_tokens': int(self.database.get_setting('ai_max_tokens', str(self.max_tokens))),
-                'prompt': self.database.get_setting('ai_prompt', Config.DEFAULT_AI_PROMPT)
-            }
+            from core.ai_models import get_model_info
+            
+            # Get AI parameters from database (includes all dynamic parameters)
+            ai_params = self.database.get_ai_parameters()
+            
+            # If no parameters saved, use legacy individual settings
+            if not ai_params:
+                model = self.database.get_setting('ai_model', self.model)
+                ai_params = {
+                    'model': model,
+                    'max_tokens': int(self.database.get_setting('ai_max_tokens', str(self.max_tokens))),
+                    'prompt': self.database.get_setting('ai_prompt', Config.DEFAULT_AI_PROMPT)
+                }
+                
+                # Add default parameters for the model
+                model_info = get_model_info(model)
+                if model_info and 'defaults' in model_info:
+                    for param, value in model_info['defaults'].items():
+                        if param not in ai_params:
+                            ai_params[param] = value
+            
+            return ai_params
         else:
             from config import Config
             return {
@@ -242,41 +259,78 @@ Please translate the following content according to the above rules.
             # Fallback to analyze
             return self.prompt_templates["analyze"].format(tweet_content=tweet_text)
     
-    async def _make_api_call(self, prompt: str) -> Any:
-        """Make actual API call to OpenAI"""
+    async def _make_api_call(self, prompt: str, model_params: Dict[str, Any] = None) -> Any:
+        """Make actual API call to OpenAI with dynamic parameters"""
         try:
-            # For o1-mini model, combine system prompt and user prompt into single user message
-            # since o1 models don't support system messages
-            if self.model == "o1-mini":
+            from core.ai_models import get_model_info
+            
+            # Get current settings including dynamic parameters
+            current_settings = self.get_current_settings()
+            model = current_settings.get('model', self.model)
+            model_info = get_model_info(model)
+            
+            if not model_info:
+                # Fallback for unknown models
+                model_info = {'supports_system_message': True, 'parameters': ['temperature', 'top_p', 'max_tokens']}
+            
+            # For o1 models, combine system and user prompts since they don't support system messages
+            if not model_info.get('supports_system_message', True) or model.startswith('o1'):
                 combined_prompt = f"{self.system_prompt}\n\n{prompt}"
                 messages = [
                     {"role": "user", "content": combined_prompt}
                 ]
-                # o1-mini doesn't support temperature, top_p, and uses max_completion_tokens instead of max_tokens
-                response = await self.client.chat.completions.create(
-                    model=self.model,
-                    messages=messages,
-                    max_completion_tokens=self.max_tokens
-                )
             else:
-                # For other models (GPT-4, GPT-3.5, etc.), use proper system and user messages
+                # For other models, use proper system and user messages
                 messages = [
                     {"role": "system", "content": self.system_prompt},
                     {"role": "user", "content": prompt}
                 ]
-                response = await self.client.chat.completions.create(
-                    model=self.model,
-                    messages=messages,
-                    max_tokens=self.max_tokens,
-                    temperature=self.temperature,
-                    top_p=self.top_p
-                )
+            
+            # Build API call parameters
+            api_params = {
+                "model": model,
+                "messages": messages
+            }
+            
+            # Add supported parameters for this model
+            supported_params = model_info.get('parameters', [])
+            
+            # Handle max_tokens vs max_completion_tokens for o1 models
+            if model.startswith('o1') and 'max_tokens' in current_settings:
+                api_params['max_completion_tokens'] = current_settings['max_tokens']
+            elif 'max_tokens' in supported_params and 'max_tokens' in current_settings:
+                api_params['max_tokens'] = current_settings['max_tokens']
+            
+            # Add other supported parameters
+            param_mapping = {
+                'temperature': 'temperature',
+                'top_p': 'top_p',
+                'frequency_penalty': 'frequency_penalty',
+                'presence_penalty': 'presence_penalty',
+                'response_format': 'response_format'
+            }
+            
+            for param_key, api_key in param_mapping.items():
+                if param_key in supported_params and param_key in current_settings:
+                    value = current_settings[param_key]
+                    # Handle response_format special case
+                    if param_key == 'response_format' and value == 'json_object':
+                        api_params[api_key] = {"type": "json_object"}
+                    else:
+                        api_params[api_key] = value
+            
+            # Override with any explicitly passed parameters
+            if model_params:
+                api_params.update(model_params)
+            
+            # Make the API call
+            response = await self.client.chat.completions.create(**api_params)
             
             return response
         except openai.RateLimitError as e:
             self.logger.warning(f"Rate limit exceeded, waiting...")
             await asyncio.sleep(60)  # Wait 1 minute
-            return await self._make_api_call(prompt)  # Retry
+            return await self._make_api_call(prompt, model_params)  # Retry
         except openai.APIError as e:
             self.logger.error(f"OpenAI API error: {e}")
             raise
@@ -503,8 +557,13 @@ Please translate the following content according to the above rules.
             # Get current settings from database
             current_settings = self.get_current_settings()
             
-            # Use custom prompt from settings if template is default
-            if template_name == "default" and current_settings.get('prompt'):
+            # Handle separate system and user prompts
+            if 'system_prompt' in current_settings:
+                self.system_prompt = current_settings['system_prompt']
+            if 'user_prompt' in current_settings:
+                template = current_settings['user_prompt']
+            elif template_name == "default" and current_settings.get('prompt'):
+                # Backward compatibility with single prompt
                 template = current_settings['prompt']
             else:
                 template = self.get_prompt_template(template_name)

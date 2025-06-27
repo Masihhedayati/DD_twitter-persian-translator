@@ -158,8 +158,10 @@ class PollingScheduler:
         
         # Start Telegram notifier if enabled
         if self.telegram_enabled and self.telegram_notifier:
-            # Telegram notifier starts automatically when created
-            self.logger.info("Telegram notification service ready")
+            if self.telegram_notifier.start_worker():
+                self.logger.info("Telegram notification service started")
+            else:
+                self.logger.error("Failed to start Telegram notification service")
         
         # Schedule initial poll to run soon but not immediately
         threading.Thread(target=self._initial_poll, daemon=True).start()
@@ -182,7 +184,7 @@ class PollingScheduler:
         
         # Stop Telegram notifier if enabled
         if self.telegram_enabled and self.telegram_notifier:
-            self.telegram_notifier.stop()
+            self.telegram_notifier.stop_worker()
             self.logger.info("Telegram notification service stopped")
         
         # Clear scheduled jobs
@@ -843,18 +845,19 @@ class PollingScheduler:
             }
         
         try:
-            telegram_stats = self.telegram_notifier.get_statistics()
+            telegram_status = self.telegram_notifier.get_queue_status()
+            telegram_stats = telegram_status.get('stats', {})
             
             return {
                 'enabled': True,
-                'is_running': self.telegram_notifier.is_running(),
+                'is_running': telegram_status.get('is_running', False),
                 'bot_username': getattr(self.telegram_notifier, 'bot_username', 'Unknown'),
-                'messages_sent': telegram_stats['messages_sent'],
-                'messages_failed': telegram_stats['messages_failed'],
-                'media_sent': telegram_stats['media_sent'],
-                'rate_limit_hits': telegram_stats['rate_limit_hits'],
-                'last_activity': telegram_stats.get('last_activity'),
-                'queue_size': telegram_stats.get('queue_size', 0),
+                'messages_sent': telegram_stats.get('messages_sent', 0),
+                'messages_failed': telegram_stats.get('messages_failed', 0),
+                'media_sent': telegram_stats.get('media_sent', 0),
+                'rate_limit_hits': telegram_stats.get('rate_limit_hits', 0),
+                'last_activity': telegram_stats.get('last_sent'),
+                'queue_size': telegram_status.get('queue_size', 0),
                 'success_rate': telegram_stats.get('success_rate', 0.0)
             }
             

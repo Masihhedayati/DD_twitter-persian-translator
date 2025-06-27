@@ -95,6 +95,9 @@ class Database:
                 conn.commit()
                 logger.info("Database initialized successfully")
                 
+                # Initialize default monitored users if none exist
+                self._initialize_default_users()
+                
         except Exception as e:
             logger.error(f"Database initialization failed: {e}")
             raise
@@ -110,9 +113,34 @@ class Database:
                 cursor.execute('ALTER TABLE tweets ADD COLUMN media_processed BOOLEAN DEFAULT 0')
                 logger.info("Added media_processed column to tweets table")
             
+            # Migration 2: Add ai_parameters column to settings table
+            cursor.execute("PRAGMA table_info(settings)")
+            settings_columns = [row[1] for row in cursor.fetchall()]
+            
+            if 'ai_parameters' not in settings_columns:
+                cursor.execute('ALTER TABLE settings ADD COLUMN ai_parameters TEXT DEFAULT "{}"')
+                logger.info("Added ai_parameters column to settings table")
+            
+            # Migration 3: Add ai_analysis column to tweets table
+            if 'ai_analysis' not in columns:
+                cursor.execute('ALTER TABLE tweets ADD COLUMN ai_analysis TEXT')
+                logger.info("Added ai_analysis column to tweets table")
+            
         except Exception as e:
             logger.error(f"Error running migrations: {e}")
             # Don't raise here, let the app continue
+    
+    def _initialize_default_users(self):
+        """Initialize default monitored users if none exist"""
+        try:
+            monitored_users = self.get_monitored_users()
+            if not monitored_users:
+                # Default users to monitor
+                default_users = ['elonmusk', 'naval', 'paulg']
+                self.set_monitored_users(default_users)
+                logger.info(f"Initialized default monitored users: {default_users}")
+        except Exception as e:
+            logger.error(f"Error initializing default users: {e}")
     
     def get_tweets(self, limit: int = 50, offset: int = 0) -> List[Dict]:
         """Get tweets from database"""
@@ -706,6 +734,54 @@ class Database:
         except Exception as e:
             logger.error(f"Error setting {key}: {e}")
             return False
+    
+    def get_ai_parameters(self) -> Dict:
+        """Get AI parameters from database"""
+        try:
+            import json
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute('SELECT ai_parameters FROM settings WHERE key = "ai_config" LIMIT 1')
+                result = cursor.fetchone()
+                
+                if result and result[0]:
+                    return json.loads(result[0])
+                return {}
+        except Exception as e:
+            logger.error(f"Error getting AI parameters: {e}")
+            return {}
+    
+    def set_ai_parameters(self, parameters: Dict) -> bool:
+        """Set AI parameters in database"""
+        try:
+            import json
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                
+                # Store as both individual settings (for backward compatibility) and as JSON
+                json_params = json.dumps(parameters)
+                
+                cursor.execute('''
+                    INSERT OR REPLACE INTO settings (key, value, ai_parameters) 
+                    VALUES ('ai_config', 'configured', ?)
+                ''', (json_params,))
+                
+                # Also update individual settings for backward compatibility
+                if 'model' in parameters:
+                    cursor.execute('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)',
+                                 ('ai_model', parameters['model']))
+                if 'max_tokens' in parameters:
+                    cursor.execute('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)',
+                                 ('ai_max_tokens', str(parameters['max_tokens'])))
+                if 'prompt' in parameters:
+                    cursor.execute('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)',
+                                 ('ai_prompt', parameters['prompt']))
+                
+                conn.commit()
+                return True
+        except Exception as e:
+            logger.error(f"Error setting AI parameters: {e}")
+            return False
 
     def add_normalized_timestamp_column(self):
         """Add a normalized timestamp column for proper chronological ordering"""
@@ -806,14 +882,29 @@ class Database:
         try:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
-                cursor.execute('''
-                    SELECT id, username, content, created_at, detected_at
-                    FROM tweets 
-                    WHERE (ai_analysis IS NULL OR ai_analysis = '') 
-                    AND ai_processed = 0
-                    ORDER BY detected_at DESC
-                    LIMIT ?
-                ''', (limit,))
+                
+                # Check if ai_analysis column exists
+                cursor.execute("PRAGMA table_info(tweets)")
+                columns = [row[1] for row in cursor.fetchall()]
+                
+                if 'ai_analysis' in columns:
+                    cursor.execute('''
+                        SELECT id, username, content, created_at, detected_at
+                        FROM tweets 
+                        WHERE (ai_analysis IS NULL OR ai_analysis = '') 
+                        AND ai_processed = 0
+                        ORDER BY detected_at DESC
+                        LIMIT ?
+                    ''', (limit,))
+                else:
+                    # Fallback for missing column
+                    cursor.execute('''
+                        SELECT id, username, content, created_at, detected_at
+                        FROM tweets 
+                        WHERE ai_processed = 0
+                        ORDER BY detected_at DESC
+                        LIMIT ?
+                    ''', (limit,))
                 
                 columns = [desc[0] for desc in cursor.description]
                 tweets = []

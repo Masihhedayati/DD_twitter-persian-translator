@@ -1,0 +1,575 @@
+{% extends "base.html" %}
+
+{% block title %}Analytics - Twitter Monitor{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+    <h1 class="h2">
+        <i class="bi bi-graph-up"></i> Analytics Dashboard
+    </h1>
+    <div class="btn-toolbar mb-2 mb-md-0">
+        <div class="btn-group me-2">
+            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="refreshAnalytics()">
+                <i class="bi bi-arrow-clockwise"></i> Refresh
+            </button>
+            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="exportData()">
+                <i class="bi bi-download"></i> Export
+            </button>
+        </div>
+        <div class="btn-group">
+            <select class="form-select form-select-sm" id="timeRange" onchange="updateTimeRange()">
+                <option value="24h">Last 24 Hours</option>
+                <option value="7d" selected>Last 7 Days</option>
+                <option value="30d">Last 30 Days</option>
+                <option value="all">All Time</option>
+            </select>
+        </div>
+    </div>
+</div>
+
+<!-- Summary Cards -->
+<div class="row mb-4">
+    <div class="col-md-3">
+        <div class="card text-center">
+            <div class="card-body">
+                <h5 class="card-title text-muted">Total Tweets</h5>
+                <h2 class="text-primary" id="totalTweets">
+                    <span class="spinner-border spinner-border-sm" role="status"></span>
+                </h2>
+                <small class="text-muted"><i class="bi bi-twitter"></i> Collected</small>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card text-center">
+            <div class="card-body">
+                <h5 class="card-title text-muted">AI Processed</h5>
+                <h2 class="text-success" id="aiProcessed">
+                    <span class="spinner-border spinner-border-sm" role="status"></span>
+                </h2>
+                <small class="text-muted"><i class="bi bi-robot"></i> Analyzed</small>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card text-center">
+            <div class="card-body">
+                <h5 class="card-title text-muted">Media Downloaded</h5>
+                <h2 class="text-info" id="mediaDownloaded">
+                    <span class="spinner-border spinner-border-sm" role="status"></span>
+                </h2>
+                <small class="text-muted"><i class="bi bi-image"></i> Files</small>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card text-center">
+            <div class="card-body">
+                <h5 class="card-title text-muted">Notifications Sent</h5>
+                <h2 class="text-warning" id="notificationsSent">
+                    <span class="spinner-border spinner-border-sm" role="status"></span>
+                </h2>
+                <small class="text-muted"><i class="bi bi-telegram"></i> Messages</small>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Charts Row -->
+<div class="row mb-4">
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-activity"></i> Tweet Activity Over Time</h5>
+            </div>
+            <div class="card-body">
+                <canvas id="activityChart" height="300"></canvas>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-pie-chart"></i> Tweet Distribution</h5>
+            </div>
+            <div class="card-body">
+                <canvas id="distributionChart" height="300"></canvas>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- User Statistics -->
+<div class="row mb-4">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-people"></i> Top Users by Tweet Count</h5>
+            </div>
+            <div class="card-body">
+                <div id="topUsersTable">
+                    <div class="text-center py-3">
+                        <span class="spinner-border spinner-border-sm" role="status"></span>
+                        Loading...
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-clock-history"></i> Processing Performance</h5>
+            </div>
+            <div class="card-body">
+                <canvas id="performanceChart" height="250"></canvas>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- AI Analysis Insights -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-lightbulb"></i> AI Analysis Insights</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-3">
+                        <div class="metric-box">
+                            <h6>Average Processing Time</h6>
+                            <h3 id="avgProcessingTime">
+                                <span class="spinner-border spinner-border-sm" role="status"></span>
+                            </h3>
+                            <small class="text-muted">seconds per tweet</small>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="metric-box">
+                            <h6>Success Rate</h6>
+                            <h3 id="successRate">
+                                <span class="spinner-border spinner-border-sm" role="status"></span>
+                            </h3>
+                            <small class="text-muted">AI processing</small>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="metric-box">
+                            <h6>Tokens Used</h6>
+                            <h3 id="tokensUsed">
+                                <span class="spinner-border spinner-border-sm" role="status"></span>
+                            </h3>
+                            <small class="text-muted">Total OpenAI tokens</small>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="metric-box">
+                            <h6>Cost Estimate</h6>
+                            <h3 id="costEstimate">
+                                <span class="spinner-border spinner-border-sm" role="status"></span>
+                            </h3>
+                            <small class="text-muted">USD</small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- System Health -->
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-heart-pulse"></i> System Health</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-4">
+                        <h6>Database</h6>
+                        <div class="progress mb-3">
+                            <div class="progress-bar" id="dbHealth" role="progressbar" style="width: 0%">0%</div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <h6>API Availability</h6>
+                        <div class="progress mb-3">
+                            <div class="progress-bar bg-success" id="apiHealth" role="progressbar" style="width: 0%">0%</div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <h6>Storage Usage</h6>
+                        <div class="progress mb-3">
+                            <div class="progress-bar bg-warning" id="storageHealth" role="progressbar" style="width: 0%">0%</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="row mt-3">
+                    <div class="col-12">
+                        <h6>Recent Errors</h6>
+                        <div id="recentErrors" class="small">
+                            <div class="text-muted">Loading error log...</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<!-- Chart.js -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script>
+// Global variables for charts
+let activityChart = null;
+let distributionChart = null;
+let performanceChart = null;
+let currentTimeRange = '7d';
+
+// Initialize analytics on page load
+document.addEventListener('DOMContentLoaded', function() {
+    initializeCharts();
+    loadAnalyticsData();
+    
+    // Auto-refresh every 30 seconds
+    setInterval(loadAnalyticsData, 30000);
+});
+
+// Initialize Chart.js charts
+function initializeCharts() {
+    // Activity Chart
+    const activityCtx = document.getElementById('activityChart').getContext('2d');
+    activityChart = new Chart(activityCtx, {
+        type: 'line',
+        data: {
+            labels: [],
+            datasets: [{
+                label: 'Tweets',
+                data: [],
+                borderColor: 'rgb(75, 192, 192)',
+                backgroundColor: 'rgba(75, 192, 192, 0.1)',
+                tension: 0.1
+            }, {
+                label: 'AI Processed',
+                data: [],
+                borderColor: 'rgb(255, 99, 132)',
+                backgroundColor: 'rgba(255, 99, 132, 0.1)',
+                tension: 0.1
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    position: 'top',
+                }
+            },
+            scales: {
+                y: {
+                    beginAtZero: true
+                }
+            }
+        }
+    });
+    
+    // Distribution Chart
+    const distributionCtx = document.getElementById('distributionChart').getContext('2d');
+    distributionChart = new Chart(distributionCtx, {
+        type: 'doughnut',
+        data: {
+            labels: ['Regular Tweets', 'Retweets', 'Replies', 'Media Tweets'],
+            datasets: [{
+                data: [0, 0, 0, 0],
+                backgroundColor: [
+                    'rgba(54, 162, 235, 0.8)',
+                    'rgba(255, 206, 86, 0.8)',
+                    'rgba(75, 192, 192, 0.8)',
+                    'rgba(153, 102, 255, 0.8)'
+                ]
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    position: 'bottom'
+                }
+            }
+        }
+    });
+    
+    // Performance Chart
+    const performanceCtx = document.getElementById('performanceChart').getContext('2d');
+    performanceChart = new Chart(performanceCtx, {
+        type: 'bar',
+        data: {
+            labels: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
+            datasets: [{
+                label: 'Avg Processing Time (s)',
+                data: [0, 0, 0, 0, 0, 0, 0],
+                backgroundColor: 'rgba(255, 159, 64, 0.8)'
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                y: {
+                    beginAtZero: true
+                }
+            }
+        }
+    });
+}
+
+// Load analytics data from API
+async function loadAnalyticsData() {
+    try {
+        const response = await fetch(`/api/analytics/summary?range=${currentTimeRange}`);
+        const data = await response.json();
+        
+        // Update summary cards
+        updateElement('totalTweets', data.summary.total_tweets || 0);
+        updateElement('aiProcessed', data.summary.ai_processed || 0);
+        updateElement('mediaDownloaded', data.summary.media_downloaded || 0);
+        updateElement('notificationsSent', data.summary.notifications_sent || 0);
+        
+        // Update charts
+        updateActivityChart(data.activity_data);
+        updateDistributionChart(data.distribution_data);
+        updatePerformanceChart(data.performance_data);
+        
+        // Update user statistics
+        updateTopUsersTable(data.top_users);
+        
+        // Update AI insights
+        updateElement('avgProcessingTime', (data.ai_insights.avg_processing_time || 0).toFixed(2));
+        updateElement('successRate', (data.ai_insights.success_rate || 0) + '%');
+        updateElement('tokensUsed', formatNumber(data.ai_insights.tokens_used || 0));
+        updateElement('costEstimate', '$' + (data.ai_insights.cost_estimate || 0).toFixed(2));
+        
+        // Update system health
+        updateHealthMetrics(data.system_health);
+        
+    } catch (error) {
+        console.error('Error loading analytics data:', error);
+        showError('Failed to load analytics data');
+    }
+}
+
+// Update activity chart
+function updateActivityChart(data) {
+    if (activityChart && data) {
+        activityChart.data.labels = data.labels;
+        activityChart.data.datasets[0].data = data.tweets;
+        activityChart.data.datasets[1].data = data.ai_processed;
+        activityChart.update();
+    }
+}
+
+// Update distribution chart
+function updateDistributionChart(data) {
+    if (distributionChart && data) {
+        distributionChart.data.datasets[0].data = [
+            data.regular || 0,
+            data.retweets || 0,
+            data.replies || 0,
+            data.media || 0
+        ];
+        distributionChart.update();
+    }
+}
+
+// Update performance chart
+function updatePerformanceChart(data) {
+    if (performanceChart && data) {
+        performanceChart.data.labels = data.labels;
+        performanceChart.data.datasets[0].data = data.values;
+        performanceChart.update();
+    }
+}
+
+// Update top users table
+function updateTopUsersTable(users) {
+    const container = document.getElementById('topUsersTable');
+    if (!users || users.length === 0) {
+        container.innerHTML = '<p class="text-muted">No user data available</p>';
+        return;
+    }
+    
+    let html = '<table class="table table-sm"><thead><tr>';
+    html += '<th>User</th><th>Tweets</th><th>AI Processed</th><th>% Processed</th>';
+    html += '</tr></thead><tbody>';
+    
+    users.forEach(user => {
+        const percentage = user.tweet_count > 0 ? 
+            ((user.ai_processed / user.tweet_count) * 100).toFixed(1) : 0;
+        html += `<tr>
+            <td>@${user.username}</td>
+            <td>${user.tweet_count}</td>
+            <td>${user.ai_processed}</td>
+            <td>
+                <div class="progress" style="height: 20px;">
+                    <div class="progress-bar" style="width: ${percentage}%">${percentage}%</div>
+                </div>
+            </td>
+        </tr>`;
+    });
+    
+    html += '</tbody></table>';
+    container.innerHTML = html;
+}
+
+// Update health metrics
+function updateHealthMetrics(health) {
+    if (health) {
+        // Database health
+        const dbBar = document.getElementById('dbHealth');
+        dbBar.style.width = health.database + '%';
+        dbBar.textContent = health.database + '%';
+        dbBar.className = 'progress-bar ' + getHealthClass(health.database);
+        
+        // API health
+        const apiBar = document.getElementById('apiHealth');
+        apiBar.style.width = health.api + '%';
+        apiBar.textContent = health.api + '%';
+        apiBar.className = 'progress-bar ' + getHealthClass(health.api);
+        
+        // Storage health (inverse - higher usage is worse)
+        const storageBar = document.getElementById('storageHealth');
+        const storageUsage = health.storage_used_percentage || 0;
+        storageBar.style.width = storageUsage + '%';
+        storageBar.textContent = storageUsage + '%';
+        storageBar.className = 'progress-bar ' + getStorageClass(storageUsage);
+        
+        // Recent errors
+        if (health.recent_errors && health.recent_errors.length > 0) {
+            let errorHtml = '<ul class="list-unstyled mb-0">';
+            health.recent_errors.slice(0, 5).forEach(error => {
+                errorHtml += `<li class="text-danger">
+                    <i class="bi bi-exclamation-circle"></i> 
+                    ${error.message} <small class="text-muted">(${error.time})</small>
+                </li>`;
+            });
+            errorHtml += '</ul>';
+            document.getElementById('recentErrors').innerHTML = errorHtml;
+        } else {
+            document.getElementById('recentErrors').innerHTML = 
+                '<span class="text-success"><i class="bi bi-check-circle"></i> No recent errors</span>';
+        }
+    }
+}
+
+// Helper function to get health bar class
+function getHealthClass(percentage) {
+    if (percentage >= 80) return 'bg-success';
+    if (percentage >= 50) return 'bg-warning';
+    return 'bg-danger';
+}
+
+// Helper function to get storage bar class
+function getStorageClass(percentage) {
+    if (percentage <= 50) return 'bg-success';
+    if (percentage <= 80) return 'bg-warning';
+    return 'bg-danger';
+}
+
+// Update time range
+function updateTimeRange() {
+    currentTimeRange = document.getElementById('timeRange').value;
+    loadAnalyticsData();
+}
+
+// Refresh analytics
+function refreshAnalytics() {
+    loadAnalyticsData();
+    showSuccess('Analytics refreshed');
+}
+
+// Export data
+async function exportData() {
+    try {
+        const response = await fetch(`/api/analytics/export?range=${currentTimeRange}`);
+        const blob = await response.blob();
+        
+        // Create download link
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `analytics_${currentTimeRange}_${new Date().toISOString().split('T')[0]}.csv`;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+        
+        showSuccess('Analytics data exported');
+    } catch (error) {
+        console.error('Error exporting data:', error);
+        showError('Failed to export data');
+    }
+}
+
+// Utility functions
+function updateElement(id, value) {
+    const element = document.getElementById(id);
+    if (element) {
+        element.textContent = value;
+    }
+}
+
+function formatNumber(num) {
+    return new Intl.NumberFormat().format(num);
+}
+
+function showSuccess(message) {
+    // You can implement a toast notification here
+    console.log('Success:', message);
+}
+
+function showError(message) {
+    // You can implement a toast notification here
+    console.error('Error:', message);
+}
+</script>
+
+<style>
+.metric-box {
+    text-align: center;
+    padding: 1rem;
+    border: 1px solid #e3e3e3;
+    border-radius: 8px;
+    background: #f8f9fa;
+}
+
+.metric-box h6 {
+    color: #6c757d;
+    font-size: 0.875rem;
+    margin-bottom: 0.5rem;
+}
+
+.metric-box h3 {
+    margin: 0;
+    color: #495057;
+}
+
+.card {
+    box-shadow: 0 0.125rem 0.25rem rgba(0,0,0,0.075);
+    margin-bottom: 1rem;
+}
+
+.progress {
+    height: 25px;
+}
+
+.progress-bar {
+    font-weight: 600;
+}
+</style>
+{% endblock %}

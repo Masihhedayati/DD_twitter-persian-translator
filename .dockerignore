@@ -1,0 +1,113 @@
+# =============================================================================
+# DOCKER IGNORE - OPTIMIZED FOR KOYEB DEPLOYMENT
+# =============================================================================
+
+# Virtual environments
+venv/
+.venv/
+ENV/
+env/
+.env.local
+.env.development
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# Git and version control
+.git/
+.gitignore
+.gitattributes
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Test files and documentation
+test_*.py
+*_test.py
+tests/
+*.md
+docs/
+twitterapi.io documentation/
+
+# Log files
+logs/
+*.log
+ngrok.log
+
+# Database files (will use PostgreSQL in production)
+*.db
+*.sqlite
+*.sqlite3
+tweets.db*
+dev_tweets.db*
+
+# Media files (these should be stored externally in production)
+media/
+downloads/
+
+# Temporary and cache files
+tmp/
+temp/
+.tmp/
+.cache/
+
+# Development specific
+.env.development
+.env.example
+env.development.example
+Dockerfile.dev
+docker-compose.dev.yml
+deploy.sh
+start_clean.py
+
+# Scripts and utilities
+scripts/
+cleanup_*.py
+fix_*.py
+
+# Backup and old files
+*.bak
+*.backup
+*.old
+
+# OS specific
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Development tools
+.flake8
+.coverage
+htmlcov/
+
+# Ngrok specific (development only)
+.ngrok_*
+NGROK_SETUP.md
+ngrok.log
+
+# Documentation and guides
+*_GUIDE.md
+*_SETUP.md
+FREE_VIDEO_DOWNLOAD_SOLUTION.md
+VIDEO_DOWNLOAD_FIX_GUIDE.md
+hardcoded_values_report.md
+scratchpad_revised.md
+
+# GitHub specific
+.github/
+
+# Deploy directory (contains deployment scripts)
+deploy/
+
+# Claude/Cursor specific
+.claude/
+.cursor/ 
