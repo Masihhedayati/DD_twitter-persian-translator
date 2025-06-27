@@ -528,6 +528,40 @@ class SQLAlchemyDatabaseWrapper:
         except Exception as e:
             logger.error(f"Error setting AI parameters: {e}")
             return False
+    
+    @property
+    def db_path(self):
+        """Compatibility property for old code that expects db_path"""
+        return "postgresql_database"  # Return a placeholder since we're using PostgreSQL
+    
+    def get_tweets_without_ai_analysis(self, limit=50):
+        """Get tweets that don't have AI analysis"""
+        try:
+            tweets = Tweet.query.filter_by(ai_processed=False).limit(limit).all()
+            return [self._tweet_to_dict(tweet) for tweet in tweets]
+        except Exception as e:
+            logger.error(f"Error getting tweets without AI analysis: {e}")
+            return []
+    
+    def get_tweets_with_missing_media(self, limit=50):
+        """Get tweets that have missing media downloads"""
+        try:
+            # Get tweets that have media but haven't been processed for media
+            tweets = Tweet.query.filter_by(media_processed=False).limit(limit).all()
+            
+            # Filter to only tweets that actually have media URLs
+            tweets_with_media = []
+            for tweet in tweets:
+                # Check if tweet content has media URLs (basic check)
+                if any(url in tweet.content.lower() for url in ['pic.twitter.com', 'video.twimg.com', 't.co/']):
+                    tweets_with_media.append(self._tweet_to_dict(tweet))
+                    if len(tweets_with_media) >= limit:
+                        break
+            
+            return tweets_with_media
+        except Exception as e:
+            logger.error(f"Error getting tweets with missing media: {e}")
+            return []
 
 def cleanup_components():
     """Cleanup components on app shutdown"""
