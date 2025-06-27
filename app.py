@@ -250,17 +250,11 @@ class SQLAlchemyDatabaseWrapper:
     
     def _with_app_context(self, func):
         """Helper method to execute database operations with Flask application context"""
-        if self.app.app_context:
+        from flask import has_app_context
+        
+        if has_app_context():
             # If we're already in app context, just run the function
-            try:
-                return func()
-            except RuntimeError as e:
-                if "application context" in str(e):
-                    # Fall back to creating context
-                    with self.app.app_context():
-                        return func()
-                else:
-                    raise
+            return func()
         else:
             # Create app context
             with self.app.app_context():
