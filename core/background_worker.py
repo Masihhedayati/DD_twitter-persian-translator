@@ -6,7 +6,7 @@ from typing import List, Dict, Optional
 import asyncio
 from queue import Queue
 
-from .database import Database
+# Database is now handled via SQLAlchemy in main app - passed as parameter
 from .ai_processor import AIProcessor
 from .media_extractor import MediaExtractor
 from .openai_client import OpenAIClient
@@ -23,7 +23,7 @@ class BackgroundWorker:
     - Maintain database completeness over time
     """
     
-    def __init__(self, database: Database, openai_client: OpenAIClient, media_storage_path: str):
+    def __init__(self, database, openai_client: OpenAIClient, media_storage_path: str):
         """
         Initialize background worker
         

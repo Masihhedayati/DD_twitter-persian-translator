@@ -32,13 +32,12 @@ class PollingScheduler:
         self.twitter_client = TwitterClient(config.get('TWITTER_API_KEY', ''))
         self.media_extractor = MediaExtractor(config.get('MEDIA_STORAGE_PATH', './media'))
         
-        # Use provided database instance or fallback to old method
+        # Use provided database instance
         if database:
             self.db = database
         else:
-            # Fallback for backward compatibility
-            from core.database import Database
-            self.db = Database(config.get('DATABASE_PATH', './tweets.db'))
+            # Database is required - no fallback to old SQLite system
+            raise ValueError("Database instance is required for PollingScheduler")
         
         # Initialize AI components if OpenAI API key is available
         openai_key = config.get('OPENAI_API_KEY', '')

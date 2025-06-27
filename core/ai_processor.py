@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any, Tuple
 import json
 
-from .database import Database
+# Database is now handled via SQLAlchemy in main app - passed as parameter
 from .openai_client import OpenAIClient
 
 
@@ -16,7 +16,7 @@ class AIProcessor:
     Handles background processing, batch operations, and error recovery.
     """
     
-    def __init__(self, database: Database, openai_client: OpenAIClient, 
+    def __init__(self, database, openai_client: OpenAIClient, 
                  batch_size: int = 10, processing_interval: int = 60):
         """Initialize AI processor"""
         self.database = database

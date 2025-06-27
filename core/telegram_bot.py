@@ -21,7 +21,7 @@ from telegram import Bot, InputMediaPhoto, InputMediaVideo, InputMediaDocument
 from telegram.error import TelegramError, RetryAfter, TimedOut, NetworkError
 from telegram.constants import ParseMode, FileSizeLimit
 
-from .database import Database
+# Database is now handled via SQLAlchemy in main app - passed as parameter
 
 
 class TelegramNotifier:
@@ -37,7 +37,7 @@ class TelegramNotifier:
     - Queue statistics and monitoring
     """
     
-    def __init__(self, bot_token: str, chat_id: str, db_manager: Database = None):
+    def __init__(self, bot_token: str, chat_id: str, db_manager = None):
         """
         Initialize Telegram bot client.
         
@@ -552,7 +552,7 @@ class TelegramNotifier:
             return False
 
 
-def create_telegram_notifier(config: Dict[str, Any], db_manager: Database = None) -> Optional[TelegramNotifier]:
+def create_telegram_notifier(config: Dict[str, Any], db_manager = None) -> Optional[TelegramNotifier]:
     """
     Factory function to create TelegramNotifier instance.
     
