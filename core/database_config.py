@@ -43,6 +43,10 @@ class DatabaseConfig:
         """Get SQLAlchemy configuration"""
         database_url = DatabaseConfig.get_database_url()
         
+        # Fix postgres:// URLs to postgresql:// for SQLAlchemy compatibility
+        if database_url.startswith('postgres://'):
+            database_url = database_url.replace('postgres://', 'postgresql://', 1)
+        
         config = {
             'SQLALCHEMY_DATABASE_URI': database_url,
             'SQLALCHEMY_TRACK_MODIFICATIONS': False,
