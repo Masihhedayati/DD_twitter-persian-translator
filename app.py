@@ -2197,6 +2197,20 @@ def get_monitored_users_direct():
         logger.error(f"Error getting monitored users directly: {e}")
         return jsonify({'error': str(e), 'method': 'direct_sqlalchemy'}), 500
 
+@app.route('/api/test/simple')
+def simple_test():
+    """Simple test endpoint to verify deployment"""
+    return jsonify({
+        'test': 'DEPLOYMENT_WORKING',
+        'timestamp': datetime.now().isoformat(),
+        'commit': '7c13cc1_manual_redeploy_test'
+    })
+
+@app.route('/api/version/check')
+def version_check():
+    """Simple endpoint to verify latest deployment"""
+    return "LATEST_DEPLOYMENT_7c13cc1_LIVE"
+
 if __name__ == '__main__':
     # Ensure required directories exist
     os.makedirs('logs', exist_ok=True)
