@@ -913,72 +913,92 @@ def get_tweets():
         return jsonify({'error': str(e)}), 500
 
 def get_filtered_tweets(limit=50, offset=0, username=None, search_query=None, filter_type='all', since=None):
-    """Get tweets with applied filters"""
+    """Get tweets with applied filters - SQLAlchemy version"""
     try:
-        import sqlite3
-        with sqlite3.connect(database.db_path) as conn:
-            conn.row_factory = sqlite3.Row
-            cursor = conn.cursor()
-            
-            # Build query with filters
-            query = "SELECT * FROM tweets WHERE 1=1"
-            params = []
-            
-            # ALWAYS filter by monitored users (unless specific username is requested)
-            if not username:
-                monitored_users = database.get_monitored_users()
-                if monitored_users:
-                    placeholders = ','.join(['?' for _ in monitored_users])
-                    query += f" AND username IN ({placeholders})"
-                    params.extend(monitored_users)
-                else:
-                    # No monitored users - return empty result
-                    return []
+        # Build SQLAlchemy query
+        query = Tweet.query
+        
+        # ALWAYS filter by monitored users (unless specific username is requested)
+        if not username:
+            monitored_users = database.get_monitored_users()
+            if monitored_users:
+                query = query.filter(Tweet.username.in_(monitored_users))
             else:
-                # Specific username filter
-                query += " AND username = ?"
-                params.append(username)
-            
-            # Search query filter
-            if search_query:
-                query += " AND (content LIKE ? OR display_name LIKE ?)"
-                search_param = f"%{search_query}%"
-                params.extend([search_param, search_param])
-            
-            # Filter type
+                # No monitored users - return empty result
+                return []
+        else:
+            # Specific username filter
+            query = query.filter(Tweet.username == username)
+        
+        # Search query filter
+        if search_query:
+            search_pattern = f"%{search_query}%"
+            query = query.filter(
+                db.or_(
+                    Tweet.content.like(search_pattern),
+                    Tweet.display_name.like(search_pattern)
+                )
+            )
+        
+        # Filter type
+        if filter_type == 'ai':
+            query = query.filter(Tweet.ai_processed == True)
+        elif filter_type in ['images', 'videos']:
+            # For media filters, we'll use a simpler approach for now
             if filter_type == 'images':
-                query += " AND id IN (SELECT DISTINCT tweet_id FROM media WHERE media_type IN ('photo', 'image'))"
+                # Find tweets with image media
+                media_tweet_ids = db.session.query(Media.tweet_id).filter(
+                    Media.media_type.in_(['photo', 'image'])
+                ).distinct()
+                query = query.filter(Tweet.id.in_(media_tweet_ids))
             elif filter_type == 'videos':
-                query += " AND id IN (SELECT DISTINCT tweet_id FROM media WHERE media_type IN ('video', 'gif', 'animated_gif'))"
-            elif filter_type == 'ai':
-                query += " AND ai_processed = 1"
-            
-            # Since timestamp for real-time updates
-            if since:
-                query += " AND detected_at > ?"
-                params.append(since)
-            
-            # Order by created_at for chronological ordering (newest first)
-            # Convert Twitter date format to sortable format for proper chronological ordering
-            query += " ORDER BY datetime(substr(created_at, 27, 4) || '-' || " \
-                     "CASE substr(created_at, 5, 3) " \
-                     "WHEN 'Jan' THEN '01' WHEN 'Feb' THEN '02' WHEN 'Mar' THEN '03' WHEN 'Apr' THEN '04' " \
-                     "WHEN 'May' THEN '05' WHEN 'Jun' THEN '06' WHEN 'Jul' THEN '07' WHEN 'Aug' THEN '08' " \
-                     "WHEN 'Sep' THEN '09' WHEN 'Oct' THEN '10' WHEN 'Nov' THEN '11' WHEN 'Dec' THEN '12' " \
-                     "END || '-' || " \
-                     "printf('%02d', CAST(substr(created_at, 9, 2) AS INTEGER)) || ' ' || " \
-                     "substr(created_at, 12, 8)) DESC, detected_at DESC LIMIT ? OFFSET ?"
-            params.extend([limit, offset])
-            
-            cursor.execute(query, params)
-            tweets = [dict(row) for row in cursor.fetchall()]
-            
-            logger.debug(f"Filtered tweets query returned {len(tweets)} results")
-            if not username:
-                logger.debug(f"Filtering by monitored users: {database.get_monitored_users()}")
-            
-            return tweets
-            
+                # Find tweets with video media
+                media_tweet_ids = db.session.query(Media.tweet_id).filter(
+                    Media.media_type.in_(['video', 'gif', 'animated_gif'])
+                ).distinct()
+                query = query.filter(Tweet.id.in_(media_tweet_ids))
+        
+        # Since timestamp for real-time updates
+        if since:
+            try:
+                since_dt = datetime.fromisoformat(since.replace('Z', '+00:00'))
+                query = query.filter(Tweet.detected_at > since_dt)
+            except Exception:
+                logger.warning(f"Invalid since timestamp: {since}")
+        
+        # Order by created_at desc (newest first)
+        query = query.order_by(Tweet.created_at.desc(), Tweet.detected_at.desc())
+        
+        # Apply pagination
+        query = query.offset(offset).limit(limit)
+        
+        # Execute query and convert to dictionaries
+        tweets = []
+        for tweet in query.all():
+            tweets.append({
+                'id': tweet.id,
+                'username': tweet.username,
+                'display_name': tweet.display_name,
+                'content': tweet.content,
+                'tweet_type': tweet.tweet_type,
+                'created_at': tweet.created_at.isoformat() if tweet.created_at else None,
+                'detected_at': tweet.detected_at.isoformat() if tweet.detected_at else None,
+                'processed_at': tweet.processed_at.isoformat() if tweet.processed_at else None,
+                'ai_processed': tweet.ai_processed,
+                'media_processed': tweet.media_processed,
+                'telegram_sent': tweet.telegram_sent,
+                'likes_count': tweet.likes_count,
+                'retweets_count': tweet.retweets_count,
+                'replies_count': tweet.replies_count,
+                'ai_analysis': tweet.ai_analysis
+            })
+        
+        logger.debug(f"Filtered tweets query returned {len(tweets)} results")
+        if not username:
+            logger.debug(f"Filtering by monitored users: {database.get_monitored_users()}")
+        
+        return tweets
+        
     except Exception as e:
         logger.error(f"Error in get_filtered_tweets: {e}")
         return []
@@ -1414,12 +1434,17 @@ def get_detailed_system_status():
         return jsonify({'error': str(e)}), 500
 
 def get_database_size():
-    """Get database file size in MB"""
+    """Get database size info for PostgreSQL"""
     try:
-        import os
-        if os.path.exists(database.db_path):
-            size_bytes = os.path.getsize(database.db_path)
-            return round(size_bytes / 1024 / 1024, 2)
+        # For PostgreSQL, we can't get file size directly
+        # Return approximate size based on record count
+        if database:
+            tweet_count = Tweet.query.count()
+            media_count = Media.query.count()
+            ai_result_count = AIResult.query.count()
+            # Rough estimate: 1KB per tweet, 0.5KB per media, 2KB per AI result
+            estimated_mb = (tweet_count + media_count * 0.5 + ai_result_count * 2) / 1024
+            return round(max(estimated_mb, 0.1), 2)  # Minimum 0.1 MB
         return 0
     except:
         return 0
@@ -1928,30 +1953,26 @@ def get_activity_data(time_range):
     }
 
 def get_distribution_data(time_range):
-    """Get tweet type distribution data"""
+    """Get tweet type distribution data - SQLAlchemy version"""
     try:
-        import sqlite3
-        with sqlite3.connect(database.db_path) as conn:
-            cursor = conn.cursor()
+        if database:
+            # Get tweet type counts using SQLAlchemy
+            regular = Tweet.query.filter_by(tweet_type='tweet').count()
+            retweets = Tweet.query.filter_by(tweet_type='retweet').count()
+            replies = Tweet.query.filter_by(tweet_type='reply').count()
             
-            # Get tweet type counts
-            cursor.execute("""
-                SELECT 
-                    SUM(CASE WHEN tweet_type = 'tweet' THEN 1 ELSE 0 END) as regular,
-                    SUM(CASE WHEN tweet_type = 'retweet' THEN 1 ELSE 0 END) as retweets,
-                    SUM(CASE WHEN tweet_type = 'reply' THEN 1 ELSE 0 END) as replies,
-                    SUM(CASE WHEN id IN (SELECT DISTINCT tweet_id FROM media) THEN 1 ELSE 0 END) as media
-                FROM tweets
-            """)
+            # Count tweets with media
+            media_tweet_ids = db.session.query(Media.tweet_id).distinct().all()
+            media = len(media_tweet_ids) if media_tweet_ids else 0
             
-            result = cursor.fetchone()
             return {
-                'regular': result[0] or 0,
-                'retweets': result[1] or 0,
-                'replies': result[2] or 0,
-                'media': result[3] or 0
+                'regular': regular,
+                'retweets': retweets,
+                'replies': replies,
+                'media': media
             }
-    except:
+    except Exception as e:
+        logger.error(f"Error getting distribution data: {e}")
         return {'regular': 0, 'retweets': 0, 'replies': 0, 'media': 0}
 
 def get_performance_data(time_range):
@@ -1963,29 +1984,21 @@ def get_performance_data(time_range):
     }
 
 def get_top_users_stats(limit=10):
-    """Get statistics for top users by tweet count"""
+    """Get statistics for top users by tweet count - SQLAlchemy version"""
     try:
         users = []
         if database:
             monitored_users = database.get_monitored_users()
             for username in monitored_users[:limit]:
-                import sqlite3
-                with sqlite3.connect(database.db_path) as conn:
-                    cursor = conn.cursor()
-                    cursor.execute("""
-                        SELECT 
-                            COUNT(*) as tweet_count,
-                            SUM(CASE WHEN ai_processed = 1 THEN 1 ELSE 0 END) as ai_processed
-                        FROM tweets 
-                        WHERE username = ?
-                    """, (username,))
-                    result = cursor.fetchone()
-                    if result:
-                        users.append({
-                            'username': username,
-                            'tweet_count': result[0],
-                            'ai_processed': result[1] or 0
-                        })
+                # Get tweet count and AI processed count using SQLAlchemy
+                tweet_count = Tweet.query.filter_by(username=username).count()
+                ai_processed = Tweet.query.filter_by(username=username, ai_processed=True).count()
+                
+                users.append({
+                    'username': username,
+                    'tweet_count': tweet_count,
+                    'ai_processed': ai_processed
+                })
         return users
     except Exception as e:
         logger.error(f"Error getting top users stats: {e}")
