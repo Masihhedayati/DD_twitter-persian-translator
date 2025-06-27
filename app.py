@@ -212,7 +212,7 @@ def initialize_components():
         hybrid_mode = config.get('HYBRID_MODE', True)
         
         if not webhook_only_mode:
-            scheduler = PollingScheduler(config)
+            scheduler = PollingScheduler(config, database)
             logger.info("Polling scheduler initialized successfully")
             
             # Start scheduler

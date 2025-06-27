@@ -6,7 +6,6 @@ from datetime import datetime, timedelta
 from typing import List, Dict, Optional, Any
 from core.twitter_client import TwitterClient
 from core.media_extractor import MediaExtractor
-from core.database import Database
 from core.ai_processor import AIProcessor
 from core.openai_client import OpenAIClient
 from core.telegram_bot import TelegramNotifier, create_telegram_notifier
@@ -18,12 +17,13 @@ class PollingScheduler:
     Handles tweet collection, media download, and database storage
     """
     
-    def __init__(self, config: Dict[str, Any]):
+    def __init__(self, config: Dict[str, Any], database=None):
         """
         Initialize polling scheduler
         
         Args:
             config: Configuration dictionary containing API keys and settings
+            database: Database instance (optional, will use config path if not provided)
         """
         self.config = config
         self.logger = logging.getLogger(__name__)
@@ -31,7 +31,14 @@ class PollingScheduler:
         # Initialize components
         self.twitter_client = TwitterClient(config.get('TWITTER_API_KEY', ''))
         self.media_extractor = MediaExtractor(config.get('MEDIA_STORAGE_PATH', './media'))
-        self.db = Database(config.get('DATABASE_PATH', './tweets.db'))
+        
+        # Use provided database instance or fallback to old method
+        if database:
+            self.db = database
+        else:
+            # Fallback for backward compatibility
+            from core.database import Database
+            self.db = Database(config.get('DATABASE_PATH', './tweets.db'))
         
         # Initialize AI components if OpenAI API key is available
         openai_key = config.get('OPENAI_API_KEY', '')

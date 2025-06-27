@@ -4,7 +4,6 @@ import hmac
 import hashlib
 from datetime import datetime
 from typing import Dict, Any, Optional
-from core.database import Database
 from core.ai_processor import AIProcessor
 from core.telegram_bot import create_telegram_notifier
 from config import Config
@@ -12,7 +11,7 @@ from config import Config
 class TwitterWebhookHandler:
     """Handles incoming Twitter webhooks for real-time tweet monitoring"""
     
-    def __init__(self, db_manager: Database, ai_processor: AIProcessor, config: Dict[str, Any]):
+    def __init__(self, db_manager, ai_processor: AIProcessor, config: Dict[str, Any]):
         self.db = db_manager
         self.ai_processor = ai_processor
         self.config = config
