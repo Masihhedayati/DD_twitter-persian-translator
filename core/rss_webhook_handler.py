@@ -244,7 +244,8 @@ class RSSWebhookHandler:
             }
             
             # Extract username from the test link
-            username = self.extract_username_from_data(test_data)
+            parsed_data = self._parse_rss_webhook(test_data)
+            username = parsed_data.get('username') if parsed_data else None
             if not username:
                 username = "testuser"  # Generic test username
             

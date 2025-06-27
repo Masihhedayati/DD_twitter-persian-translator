@@ -1675,6 +1675,35 @@ def clear_telegram_queue():
         logger.error(f"Error clearing Telegram queue: {e}")
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/debug/initialization')
+def debug_initialization_status():
+    """Debug endpoint to check component initialization status"""
+    try:
+        status = {
+            'database': database is not None,
+            'rss_webhook_handler': rss_webhook_handler is not None,
+            'webhook_handler': webhook_handler is not None,
+            'twitter_client': twitter_client is not None,
+            'ai_processor': ai_processor is not None,
+            'scheduler': scheduler is not None,
+            'background_worker': background_worker is not None,
+            'initialization_success': initialization_success if 'initialization_success' in globals() else False
+        }
+        
+        # Test database connection if available
+        if database:
+            try:
+                Setting.query.limit(1).all()
+                status['database_test'] = 'success'
+            except Exception as e:
+                status['database_test'] = f'failed: {str(e)}'
+        else:
+            status['database_test'] = 'no database instance'
+            
+        return jsonify(status)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/api/debug/users')
 def debug_monitored_users():
     """Debug endpoint to check monitored users directly"""
@@ -1683,16 +1712,16 @@ def debug_monitored_users():
         if database:
             result['database_get_monitored_users'] = database.get_monitored_users()
             
-            # Also check the raw database
-            import sqlite3
-            with sqlite3.connect(database.db_path) as conn:
-                cursor = conn.cursor()
-                cursor.execute('SELECT key, value FROM settings WHERE key = ?', ('monitored_users',))
-                raw_result = cursor.fetchone()
-                result['raw_database_query'] = {
-                    'exists': raw_result is not None,
-                    'value': raw_result[1] if raw_result else None
+            # Try SQLAlchemy query
+            try:
+                setting = Setting.query.filter_by(key='monitored_users').first()
+                result['sqlalchemy_query'] = {
+                    'exists': setting is not None,
+                    'value': setting.value if setting else None
                 }
+            except Exception as e:
+                result['sqlalchemy_query'] = {'error': str(e)}
+                
         else:
             result['error'] = 'No database connection'
             
