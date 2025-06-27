@@ -148,6 +148,11 @@ function populateSettingsForm(settings) {
         const modeRadio = document.querySelector(`input[name="monitoringMode"][value="${settings.monitoring_mode}"]`);
         if (modeRadio) {
             modeRadio.checked = true;
+            
+            // If monitoring mode is not hybrid (default), show advanced settings
+            if (settings.monitoring_mode !== 'hybrid' && !isAdvancedMode) {
+                toggleAdvancedMode();
+            }
         }
     }
     
@@ -511,11 +516,14 @@ async function saveSettings(event) {
     }
     
     try {
-        // Collect form data
+        // Collect form data with safe fallbacks
+        const monitoringModeElement = document.querySelector('input[name="monitoringMode"]:checked');
+        const monitoringMode = monitoringModeElement ? monitoringModeElement.value : 'hybrid'; // Default to hybrid
+        
         const settings = {
             twitter_settings: {
                 check_interval: parseInt(document.getElementById('checkInterval').value),
-                monitoring_mode: document.querySelector('input[name="monitoringMode"]:checked').value,
+                monitoring_mode: monitoringMode,
                 historical_hours: parseInt(document.getElementById('historicalHours').value)
             },
             notification_settings: {
