@@ -4,6 +4,7 @@
 from flask import Flask, render_template, request, jsonify
 from flask_sqlalchemy import SQLAlchemy
 import os
+import sys
 import logging
 from datetime import datetime
 import atexit
@@ -415,6 +416,100 @@ class SQLAlchemyDatabaseWrapper:
             logger.error(f"Error setting value: {e}")
             self.db.session.rollback()
             return False
+    
+    def get_unprocessed_tweets(self, limit=50):
+        """Get tweets that haven't been processed by AI"""
+        try:
+            tweets = Tweet.query.filter_by(ai_processed=False).limit(limit).all()
+            return [self._tweet_to_dict(tweet) for tweet in tweets]
+        except Exception as e:
+            logger.error(f"Error getting unprocessed tweets: {e}")
+            return []
+    
+    def store_ai_result(self, result_data):
+        """Store AI processing result"""
+        try:
+            ai_result = AIResult(
+                tweet_id=result_data.get('tweet_id'),
+                prompt_used=result_data.get('prompt_used', ''),
+                result=result_data.get('result'),
+                model_used=result_data.get('model_used'),
+                processing_time=result_data.get('processing_time'),
+                tokens_used=result_data.get('tokens_used')
+            )
+            
+            self.db.session.add(ai_result)
+            self.db.session.commit()
+            return True
+        except Exception as e:
+            logger.error(f"Error storing AI result: {e}")
+            self.db.session.rollback()
+            return False
+    
+    def update_tweet_ai_status(self, tweet_id, processed):
+        """Update tweet AI processing status"""
+        try:
+            tweet = Tweet.query.filter_by(id=tweet_id).first()
+            if tweet:
+                tweet.ai_processed = processed
+                tweet.processed_at = datetime.utcnow() if processed else None
+                self.db.session.commit()
+                return True
+            return False
+        except Exception as e:
+            logger.error(f"Error updating tweet AI status: {e}")
+            self.db.session.rollback()
+            return False
+    
+    def get_unprocessed_count(self):
+        """Get count of unprocessed tweets"""
+        try:
+            return Tweet.query.filter_by(ai_processed=False).count()
+        except Exception as e:
+            logger.error(f"Error getting unprocessed count: {e}")
+            return 0
+    
+    def get_total_tweets_count(self):
+        """Get total tweet count"""
+        try:
+            return Tweet.query.count()
+        except Exception as e:
+            logger.error(f"Error getting total tweets count: {e}")
+            return 0
+    
+    def get_failed_ai_tweets(self, limit=50):
+        """Get tweets that failed AI processing"""
+        try:
+            # For now, return empty list - would need error tracking
+            return []
+        except Exception as e:
+            logger.error(f"Error getting failed AI tweets: {e}")
+            return []
+    
+    def clear_ai_error(self, tweet_id):
+        """Clear AI processing error for a tweet"""
+        try:
+            # For now, just return True - would need error tracking
+            return True
+        except Exception as e:
+            logger.error(f"Error clearing AI error: {e}")
+            return False
+    
+    def get_recent_ai_results(self, limit=10):
+        """Get recent AI results"""
+        try:
+            results = AIResult.query.order_by(AIResult.created_at.desc()).limit(limit).all()
+            return [{
+                'tweet_id': result.tweet_id,
+                'result': result.result,
+                'model_used': result.model_used,
+                'processing_time': result.processing_time,
+                'tokens_used': result.tokens_used,
+                'created_at': result.created_at.isoformat() if result.created_at else None
+            } for result in results]
+        except Exception as e:
+            logger.error(f"Error getting recent AI results: {e}")
+            return []
 
 def cleanup_components():
     """Cleanup components on app shutdown"""
@@ -436,6 +531,25 @@ def cleanup_components():
 
 # Register cleanup function
 atexit.register(cleanup_components)
+
+# Initialize components at module level for production/Gunicorn compatibility
+logger.info("Initializing components at module level...")
+
+# Ensure required directories exist
+os.makedirs('logs', exist_ok=True)
+os.makedirs('data', exist_ok=True)
+
+# Display startup information
+try:
+    from startup_info import display_startup_info
+    display_startup_info()
+except ImportError:
+    logger.warning("Could not import startup_info module")
+
+# Initialize all components
+initialization_success = initialize_components()
+if not initialization_success:
+    logger.error("Failed to initialize components - some features may not work")
 
 @app.route('/')
 def dashboard():
