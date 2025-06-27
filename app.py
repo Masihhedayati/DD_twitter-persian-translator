@@ -1531,14 +1531,6 @@ def get_success_rate():
 def get_monitored_users():
     """Get list of currently monitored users"""
     try:
-        # DEBUG: Check the database object type and attributes
-        logger.info(f"Database object type: {type(database)}")
-        logger.info(f"Database has db_path: {hasattr(database, 'db_path')}")
-        if hasattr(database, 'db_path'):
-            logger.info(f"Database db_path value: {database.db_path}")
-        else:
-            logger.info(f"Database attributes: {dir(database)}")
-        
         # Get monitored users from database settings
         if database:
             users = database.get_monitored_users()
@@ -2292,6 +2284,48 @@ def debug_database_methods():
 def version_check():
     """Simple endpoint to verify latest deployment"""
     return "LATEST_DEPLOYMENT_33b90df_CRITICAL_FIX"
+
+@app.route('/api/debug/database-wrapper-test')
+def test_database_wrapper():
+    """Test database wrapper methods"""
+    try:
+        if not database:
+            return jsonify({'error': 'Database not initialized'}), 500
+        
+        # Test that all required methods exist
+        required_methods = [
+            'get_monitored_users', 'add_monitored_user', 'remove_monitored_user',
+            'get_tweets', 'insert_tweet', 'tweet_exists', 'store_tweet',
+            'get_stats', 'get_setting', 'set_setting',
+            'get_unprocessed_tweets', 'store_ai_result', 'update_tweet_ai_status',
+            'get_unprocessed_count', 'get_total_tweets_count', 'get_failed_ai_tweets',
+            'clear_ai_error', 'get_recent_ai_results', 'get_ai_parameters', 'set_ai_parameters',
+            'get_tweets_without_ai_analysis', 'get_tweets_with_missing_media', 'mark_telegram_sent'
+        ]
+        
+        required_properties = ['db_path']
+        
+        missing_methods = []
+        for method in required_methods:
+            if not hasattr(database, method):
+                missing_methods.append(method)
+        
+        missing_properties = []
+        for prop in required_properties:
+            if not hasattr(database, prop):
+                missing_properties.append(prop)
+        
+        return jsonify({
+            'status': 'success',
+            'database_type': str(type(database)),
+            'has_all_methods': len(missing_methods) == 0,
+            'missing_methods': missing_methods,
+            'missing_properties': missing_properties,
+            'total_required_methods': len(required_methods),
+            'total_required_properties': len(required_properties)
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
     # Ensure required directories exist
