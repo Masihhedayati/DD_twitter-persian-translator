@@ -1291,6 +1291,10 @@ def get_settings():
             'openai_api_configured': bool(getattr(Config, 'OPENAI_API_KEY', None)),
             'telegram_configured': bool(Config.TELEGRAM_BOT_TOKEN and Config.TELEGRAM_CHAT_ID),
             'media_storage_path': getattr(Config, 'MEDIA_STORAGE_PATH', './media'),
+            'telegram_config': {
+                'bot_token': database.get_setting('telegram_bot_token', Config.TELEGRAM_BOT_TOKEN) if database else Config.TELEGRAM_BOT_TOKEN,
+                'chat_id': database.get_setting('telegram_chat_id', Config.TELEGRAM_CHAT_ID) if database else Config.TELEGRAM_CHAT_ID
+            },
             'notification_settings': {
                 'enabled': scheduler.notification_enabled if scheduler else False,
                 'notify_all_tweets': scheduler.notify_all_tweets if scheduler else False,
@@ -1305,10 +1309,6 @@ def get_settings():
                 'max_tokens': int(database.get_setting('ai_max_tokens', str(Config.DEFAULT_AI_MAX_TOKENS))) if database else Config.DEFAULT_AI_MAX_TOKENS,
                 'prompt': database.get_setting('ai_prompt', Config.DEFAULT_AI_PROMPT) if database else Config.DEFAULT_AI_PROMPT,
                 'parameters': database.get_ai_parameters() if database else {}
-            },
-            'telegram_settings': {
-                'bot_token': database.get_setting('telegram_bot_token', '') if database else '',
-                'chat_id': database.get_setting('telegram_chat_id', '') if database else ''
             }
         }
         return jsonify(settings)
@@ -1399,17 +1399,59 @@ def update_settings():
                 database.set_setting('historical_hours', str(twitter_settings['historical_hours']))
                 updated_settings.append('historical_hours')
         
-        # Update Telegram settings
-        if 'telegram_settings' in data and database:
-            telegram_settings = data['telegram_settings']
+        # Add Telegram configuration handling
+        if 'telegram_config' in data and database:
+            telegram_config = data['telegram_config']
             
-            if 'bot_token' in telegram_settings:
-                database.set_setting('telegram_bot_token', telegram_settings['bot_token'])
+            if 'bot_token' in telegram_config:
+                database.set_setting('telegram_bot_token', telegram_config['bot_token'])
                 updated_settings.append('telegram_bot_token')
+                
+                # Update scheduler if needed
+                if scheduler and hasattr(scheduler, 'telegram_notifier'):
+                    # Recreate telegram notifier with new token
+                    old_notifier = scheduler.telegram_notifier
+                    if old_notifier:
+                        old_notifier.stop_worker()
+                    
+                    # Create new notifier with updated config
+                    telegram_token = telegram_config['bot_token']
+                    telegram_chat_id = telegram_config.get('chat_id') or database.get_setting('telegram_chat_id', '')
+                    
+                    if telegram_token and telegram_chat_id:
+                        from core.telegram_bot import create_telegram_notifier
+                        new_config = {
+                            'TELEGRAM_BOT_TOKEN': telegram_token,
+                            'TELEGRAM_CHAT_ID': telegram_chat_id
+                        }
+                        scheduler.telegram_notifier = create_telegram_notifier(new_config, database)
+                        if scheduler.telegram_notifier:
+                            scheduler.telegram_notifier.start_worker()
             
-            if 'chat_id' in telegram_settings:
-                database.set_setting('telegram_chat_id', telegram_settings['chat_id'])
+            if 'chat_id' in telegram_config:
+                database.set_setting('telegram_chat_id', telegram_config['chat_id'])
                 updated_settings.append('telegram_chat_id')
+                
+                # Update scheduler if needed  
+                if scheduler and hasattr(scheduler, 'telegram_notifier'):
+                    # Recreate telegram notifier with new chat ID
+                    old_notifier = scheduler.telegram_notifier
+                    if old_notifier:
+                        old_notifier.stop_worker()
+                    
+                    # Create new notifier with updated config
+                    telegram_token = telegram_config.get('bot_token') or database.get_setting('telegram_bot_token', '')
+                    telegram_chat_id = telegram_config['chat_id']
+                    
+                    if telegram_token and telegram_chat_id:
+                        from core.telegram_bot import create_telegram_notifier
+                        new_config = {
+                            'TELEGRAM_BOT_TOKEN': telegram_token,
+                            'TELEGRAM_CHAT_ID': telegram_chat_id
+                        }
+                        scheduler.telegram_notifier = create_telegram_notifier(new_config, database)
+                        if scheduler.telegram_notifier:
+                            scheduler.telegram_notifier.start_worker()
         
         return jsonify({
             'success': True,
@@ -2345,72 +2387,66 @@ def test_database_wrapper():
 
 @app.route('/api/telegram/validate', methods=['POST'])
 def validate_telegram_config():
-    """Validate Telegram bot configuration and get bot/chat info"""
+    """Validate Telegram bot configuration and get bot info"""
     try:
         data = request.get_json()
         if not data:
             return jsonify({'error': 'No data provided'}), 400
         
-        bot_token = data.get('bot_token')
-        chat_id = data.get('chat_id')
+        bot_token = data.get('bot_token', '').strip()
+        chat_id = data.get('chat_id', '').strip()
         
         if not bot_token or not chat_id:
             return jsonify({'error': 'Bot token and chat ID are required'}), 400
         
-        import requests
+        # Create temporary notifier to validate
+        from core.telegram_bot import TelegramNotifier
+        temp_notifier = TelegramNotifier(bot_token, chat_id)
         
-        # Validate bot token and get bot info
-        bot_info_url = f"https://api.telegram.org/bot{bot_token}/getMe"
-        try:
-            bot_response = requests.get(bot_info_url, timeout=10)
-            if not bot_response.ok:
-                return jsonify({'error': 'Invalid bot token or bot is not accessible'}), 400
+        # Validate bot token
+        import asyncio
+        async def validate_bot():
+            try:
+                bot_info = await temp_notifier.bot.get_me()
+                
+                # Try to get chat info
+                chat_info = None
+                try:
+                    chat_info = await temp_notifier.bot.get_chat(chat_id)
+                except Exception as chat_error:
+                    logger.warning(f"Could not get chat info: {chat_error}")
+                
+                return {
+                    'valid': True,
+                    'bot_info': {
+                        'id': bot_info.id,
+                        'username': bot_info.username,
+                        'first_name': bot_info.first_name,
+                        'is_bot': bot_info.is_bot
+                    },
+                    'chat_info': {
+                        'id': chat_info.id if chat_info else chat_id,
+                        'title': getattr(chat_info, 'title', None),
+                        'type': getattr(chat_info, 'type', 'unknown'),
+                        'username': getattr(chat_info, 'username', None)
+                    } if chat_info else None
+                }
+            except Exception as e:
+                logger.error(f"Bot validation failed: {e}")
+                return {'valid': False, 'error': str(e)}
+        
+        # Run validation
+        result = asyncio.run(validate_bot())
+        
+        if result['valid']:
+            return jsonify({
+                'success': True,
+                'bot_info': result['bot_info'],
+                'chat_info': result['chat_info']
+            })
+        else:
+            return jsonify({'error': result['error']}), 400
             
-            bot_data = bot_response.json()
-            if not bot_data.get('ok'):
-                return jsonify({'error': 'Bot token validation failed'}), 400
-            
-            bot_info = bot_data.get('result', {})
-            
-        except requests.RequestException as e:
-            logger.error(f"Error validating bot token: {e}")
-            return jsonify({'error': 'Failed to connect to Telegram API'}), 500
-        
-        # Get chat info
-        chat_info_url = f"https://api.telegram.org/bot{bot_token}/getChat"
-        chat_info = None
-        try:
-            chat_response = requests.get(chat_info_url, params={'chat_id': chat_id}, timeout=10)
-            if chat_response.ok:
-                chat_data = chat_response.json()
-                if chat_data.get('ok'):
-                    chat_info = chat_data.get('result', {})
-        except requests.RequestException as e:
-            logger.warning(f"Could not get chat info: {e}")
-            # This is not critical, continue without chat info
-        
-        # Build response
-        response_data = {
-            'success': True,
-            'bot_info': {
-                'username': bot_info.get('username'),
-                'first_name': bot_info.get('first_name'),
-                'id': bot_info.get('id'),
-                'is_bot': bot_info.get('is_bot', False)
-            },
-            'chat_info': None
-        }
-        
-        if chat_info:
-            response_data['chat_info'] = {
-                'id': chat_info.get('id'),
-                'title': chat_info.get('title'),
-                'type': chat_info.get('type'),
-                'username': chat_info.get('username')
-            }
-        
-        return jsonify(response_data)
-        
     except Exception as e:
         logger.error(f"Error validating Telegram config: {e}")
         return jsonify({'error': str(e)}), 500

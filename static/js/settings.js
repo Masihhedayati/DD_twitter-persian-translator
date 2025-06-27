@@ -156,6 +156,18 @@ function populateSettingsForm(settings) {
         }
     }
     
+    // Telegram configuration
+    const telegramConfig = settings.telegram_config || {};
+    const telegramBotTokenElement = document.getElementById('telegramBotToken');
+    if (telegramBotTokenElement) {
+        telegramBotTokenElement.value = telegramConfig.bot_token || '';
+    }
+    
+    const telegramChatIdElement = document.getElementById('telegramChatId');
+    if (telegramChatIdElement) {
+        telegramChatIdElement.value = telegramConfig.chat_id || '';
+    }
+    
     // Notification settings
     const notificationSettings = settings.notification_settings || {};
     const notificationsEnabledElement = document.getElementById('notificationsEnabled');
@@ -213,18 +225,6 @@ function populateSettingsForm(settings) {
     const aiMaxTokensElement = document.getElementById('aiMaxTokens');
     if (aiMaxTokensElement) {
         aiMaxTokensElement.value = aiSettings.max_tokens || 150;
-    }
-    
-    // Telegram settings
-    const telegramSettings = settings.telegram_settings || {};
-    const telegramBotTokenElement = document.getElementById('telegramBotToken');
-    if (telegramBotTokenElement) {
-        telegramBotTokenElement.value = telegramSettings.bot_token || '';
-    }
-    
-    const telegramChatIdElement = document.getElementById('telegramChatId');
-    if (telegramChatIdElement) {
-        telegramChatIdElement.value = telegramSettings.chat_id || '';
     }
 }
 
@@ -544,6 +544,10 @@ async function saveSettings(event) {
                 notify_ai_processed_only: document.getElementById('notifyAiOnly').checked,
                 notification_delay: parseInt(document.getElementById('notificationDelay').value)
             },
+            telegram_config: {
+                bot_token: document.getElementById('telegramBotToken').value,
+                chat_id: document.getElementById('telegramChatId').value
+            },
             ai_settings: {
                 enabled: document.getElementById('aiEnabled').checked,
                 auto_process: document.getElementById('autoProcessEnabled').checked,
@@ -553,10 +557,6 @@ async function saveSettings(event) {
                 prompt: document.getElementById('aiPrompt').value,
                 // Add new parameters format
                 parameters: collectParameterValues()
-            },
-            telegram_settings: {
-                bot_token: document.getElementById('telegramBotToken').value,
-                chat_id: document.getElementById('telegramChatId').value
             }
         };
         
@@ -794,11 +794,6 @@ async function validateTelegramConfig() {
         return;
     }
     
-    const validateButton = document.querySelector('button[onclick="validateTelegramConfig()"]');
-    if (validateButton) {
-        setButtonLoading(validateButton, true, 'Validating...');
-    }
-    
     try {
         showStatus('Validating Telegram configuration...', 'info');
         
@@ -813,60 +808,40 @@ async function validateTelegramConfig() {
             })
         });
         
-        if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
-        }
-        
         const result = await response.json();
         
-        if (result.success && result.bot_info) {
-            // Display bot info
+        if (response.ok && result.success) {
+            const botInfo = result.bot_info;
+            const chatInfo = result.chat_info;
+            
+            // Update bot info display
             const botInfoDisplay = document.getElementById('botInfoDisplay');
-            const botUsernameEl = document.getElementById('botUsername');
-            const botNameEl = document.getElementById('botName');
+            const botUsernameElement = document.getElementById('botUsername');
+            const botNameElement = document.getElementById('botName');
             
-            if (botUsernameEl && result.bot_info.username) {
-                botUsernameEl.textContent = `@${result.bot_info.username}`;
+            botUsernameElement.textContent = `@${botInfo.username}`;
+            
+            // Create detailed bot info
+            let botInfoText = botInfo.first_name;
+            if (chatInfo && chatInfo.title) {
+                botInfoText += ` | Chat: ${chatInfo.title}`;
+            } else if (chatInfo && chatInfo.type) {
+                botInfoText += ` | Type: ${chatInfo.type}`;
             }
             
-            if (botNameEl && result.bot_info.first_name) {
-                let displayName = result.bot_info.first_name;
-                if (result.chat_info && result.chat_info.title) {
-                    displayName += ` → ${result.chat_info.title}`;
-                } else if (result.chat_info && result.chat_info.type) {
-                    displayName += ` → ${result.chat_info.type}`;
-                }
-                botNameEl.textContent = displayName;
-            }
+            botNameElement.textContent = botInfoText;
+            botInfoDisplay.style.display = 'block';
             
-            if (botInfoDisplay) {
-                botInfoDisplay.style.display = 'block';
-            }
+            showStatus('Telegram configuration is valid!', 'success');
             
-            let successMsg = 'Telegram configuration is valid!';
-            if (result.chat_info && result.chat_info.title) {
-                successMsg += ` Connected to: ${result.chat_info.title}`;
-            }
-            
-            showStatus(successMsg, 'success');
         } else {
-            throw new Error('Validation failed: Invalid response from server');
+            throw new Error(result.error || 'Validation failed');
         }
         
     } catch (error) {
         console.error('Error validating Telegram config:', error);
-        showStatus('Validation failed: ' + error.message, 'error', 10000);
-        
-        // Hide bot info display on error
-        const botInfoDisplay = document.getElementById('botInfoDisplay');
-        if (botInfoDisplay) {
-            botInfoDisplay.style.display = 'none';
-        }
-    } finally {
-        if (validateButton) {
-            setButtonLoading(validateButton, false);
-        }
+        showStatus('Validation failed: ' + error.message, 'error');
+        document.getElementById('botInfoDisplay').style.display = 'none';
     }
 }
 
