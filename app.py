@@ -276,7 +276,7 @@ class SQLAlchemyDatabaseWrapper:
     
     def set_monitored_users(self, users):
         """Set monitored users"""
-        try:
+        def _set_users():
             users_str = ','.join(users)
             setting = Setting.query.filter_by(key='monitored_users').first()
             if setting:
@@ -288,9 +288,15 @@ class SQLAlchemyDatabaseWrapper:
             
             self.db.session.commit()
             return True
+        
+        try:
+            return self._with_app_context(_set_users)
         except Exception as e:
             logger.error(f"Error setting monitored users: {e}")
-            self.db.session.rollback()
+            try:
+                self.db.session.rollback()
+            except:
+                pass
             return False
     
     def add_monitored_user(self, username):
@@ -319,9 +325,12 @@ class SQLAlchemyDatabaseWrapper:
     
     def get_tweets(self, limit=50, offset=0):
         """Get tweets from database"""
-        try:
+        def _get_tweets():
             tweets = Tweet.query.order_by(Tweet.created_at.desc()).limit(limit).offset(offset).all()
             return [self._tweet_to_dict(tweet) for tweet in tweets]
+        
+        try:
+            return self._with_app_context(_get_tweets)
         except Exception as e:
             logger.error(f"Error getting tweets: {e}")
             return []
@@ -377,7 +386,7 @@ class SQLAlchemyDatabaseWrapper:
     
     def get_stats(self):
         """Get database statistics"""
-        try:
+        def _get_stats():
             total_tweets = Tweet.query.count()
             ai_processed = Tweet.query.filter_by(ai_processed=True).count()
             telegram_sent = Tweet.query.filter_by(telegram_sent=True).count()
@@ -388,6 +397,9 @@ class SQLAlchemyDatabaseWrapper:
                 'telegram_sent': telegram_sent,
                 'unprocessed': total_tweets - ai_processed
             }
+        
+        try:
+            return self._with_app_context(_get_stats)
         except Exception as e:
             logger.error(f"Error getting stats: {e}")
             return {'total_tweets': 0, 'ai_processed': 0, 'telegram_sent': 0, 'unprocessed': 0}
@@ -424,16 +436,19 @@ class SQLAlchemyDatabaseWrapper:
     
     def get_setting(self, key, default_value=None):
         """Get a setting value"""
-        try:
+        def _get_setting():
             setting = Setting.query.filter_by(key=key).first()
             return setting.value if setting else default_value
+        
+        try:
+            return self._with_app_context(_get_setting)
         except Exception as e:
             logger.error(f"Error getting setting: {e}")
             return default_value
     
     def set_setting(self, key, value):
         """Set a setting value"""
-        try:
+        def _set_setting():
             setting = Setting.query.filter_by(key=key).first()
             if setting:
                 setting.value = value
@@ -444,9 +459,15 @@ class SQLAlchemyDatabaseWrapper:
             
             self.db.session.commit()
             return True
+        
+        try:
+            return self._with_app_context(_set_setting)
         except Exception as e:
             logger.error(f"Error setting value: {e}")
-            self.db.session.rollback()
+            try:
+                self.db.session.rollback()
+            except:
+                pass
             return False
     
     def get_unprocessed_tweets(self, limit=50):
