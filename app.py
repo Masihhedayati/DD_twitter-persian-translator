@@ -1492,13 +1492,37 @@ def get_settings():
         # Import config here to avoid circular imports
         from config import Config
         
+        # Get monitored users with timeout fallback
+        monitored_users = []
+        if database:
+            try:
+                monitored_users = database.get_monitored_users()
+            except Exception as e:
+                logger.warning(f"Timeout getting monitored users, using direct fallback: {e}")
+                try:
+                    setting = Setting.query.filter_by(key='monitored_users').first()
+                    if setting and setting.value:
+                        monitored_users = [u.strip() for u in setting.value.split(',') if u.strip()]
+                except Exception as e2:
+                    logger.error(f"Failed to get monitored users via fallback: {e2}")
+                    monitored_users = []
+
+        # Get AI parameters with fallback
+        ai_parameters = {}
+        if database:
+            try:
+                ai_parameters = database.get_ai_parameters() or {}
+            except Exception as e:
+                logger.warning(f"Failed to get AI parameters: {e}")
+                ai_parameters = {}
+
         settings = {
-            'monitored_users': database.get_monitored_users() if database else [],
+            'monitored_users': monitored_users,
             'check_interval': int(database.get_setting('check_interval', '60')) if database else 60,
             'monitoring_mode': database.get_setting('monitoring_mode', 'hybrid') if database else 'hybrid',
             'historical_hours': int(database.get_setting('historical_hours', '2')) if database else 2,
             'twitter_api_configured': bool(Config.TWITTER_API_KEY),
-            'openai_api_configured': bool(getattr(Config, 'OPENAI_API_KEY', None)),
+            'openai_api_configured': bool(getattr(Config, 'OPENAI_API_KEY', None) or (database and database.get_setting('openai_api_key'))),
             'telegram_configured': bool(Config.TELEGRAM_BOT_TOKEN and Config.TELEGRAM_CHAT_ID),
             'media_storage_path': getattr(Config, 'MEDIA_STORAGE_PATH', './media'),
             'telegram_config': {
@@ -1518,7 +1542,7 @@ def get_settings():
                 'model': database.get_setting('ai_model', Config.DEFAULT_AI_MODEL) if database else Config.DEFAULT_AI_MODEL,
                 'max_tokens': int(database.get_setting('ai_max_tokens', str(Config.DEFAULT_AI_MAX_TOKENS))) if database else Config.DEFAULT_AI_MAX_TOKENS,
                 'prompt': database.get_setting('ai_prompt', Config.DEFAULT_AI_PROMPT) if database else Config.DEFAULT_AI_PROMPT,
-                'parameters': database.get_ai_parameters() if database else {}
+                'parameters': ai_parameters
             }
         }
         return jsonify(settings)
@@ -2659,6 +2683,47 @@ def validate_telegram_config():
             
     except Exception as e:
         logger.error(f"Error validating Telegram config: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/openai/set-key', methods=['POST'])
+def set_openai_key():
+    """Simple endpoint to set OpenAI API key"""
+    try:
+        data = request.get_json()
+        if not data or 'api_key' not in data:
+            return jsonify({'error': 'API key required'}), 400
+        
+        api_key = data['api_key'].strip()
+        if not api_key.startswith('sk-'):
+            return jsonify({'error': 'Invalid API key format'}), 400
+        
+        # Set the API key in database
+        if database:
+            success = database.set_setting('openai_api_key', api_key)
+            if success:
+                # Update the config at runtime
+                from config import Config
+                Config.OPENAI_API_KEY = api_key
+                
+                # Update scheduler's OpenAI client if available
+                if scheduler and hasattr(scheduler, 'ai_processor') and scheduler.ai_processor:
+                    try:
+                        scheduler.ai_processor.openai_client.api_key = api_key
+                    except:
+                        pass
+                
+                return jsonify({
+                    'success': True,
+                    'message': 'OpenAI API key updated successfully',
+                    'key_prefix': api_key[:10] + '...'
+                })
+            else:
+                return jsonify({'error': 'Failed to save API key to database'}), 500
+        else:
+            return jsonify({'error': 'Database not available'}), 500
+            
+    except Exception as e:
+        logger.error(f"Error setting OpenAI API key: {e}")
         return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
